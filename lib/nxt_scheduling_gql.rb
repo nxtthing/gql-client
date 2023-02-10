@@ -32,7 +32,7 @@ class NxtSchedulingGql
 
   class << self
     def query(name, gql, response_path = nil)
-      define_method name do |**args|
+      define_singleton_method name do |**args|
         definition = if instance_variable_defined?(name)
                        instance_variable_get(name)
                      else
