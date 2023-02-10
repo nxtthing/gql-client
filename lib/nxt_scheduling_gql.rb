@@ -3,8 +3,9 @@ require "graphql/client/http"
 
 class NxtSchedulingGql
   class QueryCallerWrapper
-    def initialize(query_definition)
+    def initialize(query_definition:, response_path: nil)
       @query_definition = query_definition
+      @response_path = response_path
     end
 
     def call(vars = {})
@@ -30,6 +31,27 @@ class NxtSchedulingGql
   end
 
   class << self
+    def query(name, gql, response_path = nil)
+      define_method name, **args do
+        definition = if instance_variable_defined?(name)
+                       instance_variable_get(name)
+                     else
+                       instance_variable_set(name, parse_query(query: gql, response_path:))
+                     end
+        definition.call(**args)
+      end
+    end
+
+    def client
+      @client ||= begin
+                    result = ::GraphQL::Client.new(schema: schema, execute: http_client)
+                    result.allow_dynamic_queries = true
+                    result
+                  end
+    end
+
+    private
+
     def http_client
       @http_client ||= ::GraphQL::Client::HTTP.new(ENV.fetch("SCHEDULING_BACK_GQL_URL"))
     end
@@ -38,17 +60,9 @@ class NxtSchedulingGql
       @schema ||= ::GraphQL::Client.load_schema(http_client)
     end
 
-    def client
-      @client ||= begin
-        result = ::GraphQL::Client.new(schema: schema, execute: http_client)
-        result.allow_dynamic_queries = true
-        result
-      end
-    end
-
-    def parse_query(query)
+    def parse_query(query:, response_path:)
       definition = NxtSchedulingGql.client.parse(query)
-      QueryCallerWrapper.new(definition)
+      QueryCallerWrapper.new(query_definition: definition, response_path:)
     end
   end
 end
