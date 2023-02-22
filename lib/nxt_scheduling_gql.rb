@@ -14,7 +14,7 @@ class NxtSchedulingGql
       response = response_path.reduce(query_result.to_h) { |acc, k| acc[k] }
       return response.map { |item| item.deep_transform_keys(&:underscore) } if response.is_a?(::Array)
 
-      response.deep_transform_keys(&:underscore)
+      response && response.deep_transform_keys(&:underscore)
     end
 
     private
