@@ -9,15 +9,30 @@ class NxtSchedulingGql
     end
 
     def call(vars = {})
-      variables = vars.deep_transform_keys { |k| k.to_s.camelize(:lower) }
-      query_result = NxtSchedulingGql.client.query(@query_definition, variables:)
-      response = response_path.reduce(query_result.to_h) { |acc, k| acc[k] }
+      variables = deep_to_h(vars).deep_transform_keys { |k| k.to_s.camelize(:lower) }
+      query_result = NxtSchedulingGql.client.query(@query_definition, variables:).to_h
+      raise query_result["errors"].first["message"] if query_result.key?("errors")
+
+      response = response_path.reduce(query_result) { |acc, k| acc[k] }
       return response.map { |item| item.deep_transform_keys(&:underscore) } if response.is_a?(::Array)
 
       response && response.deep_transform_keys(&:underscore)
     end
 
     private
+
+    def deep_to_h(params)
+      params.transform_values do |value|
+        case value
+        when GraphQL::Schema::InputObject
+          deep_to_h(value.to_h)
+        when ::Time, ::Date
+          value.iso8601
+        else
+          value
+        end
+      end
+    end
 
     def response_path
       @response_path ||= begin
