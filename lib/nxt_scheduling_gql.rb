@@ -2,6 +2,15 @@ require "graphql/client"
 require "graphql/client/http"
 
 class NxtSchedulingGql
+  class InvalidResponse < StandardError
+    attr_reader :response
+
+    def initialize(message, response)
+      super(message)
+      @response = response
+    end
+  end
+
   class QueryCallerWrapper
     def initialize(query_definition:, response_path: nil)
       @query_definition = query_definition
@@ -11,7 +20,7 @@ class NxtSchedulingGql
     def call(vars = {})
       variables = deep_to_h(vars).deep_transform_keys { |k| k.to_s.camelize(:lower) }
       query_result = NxtSchedulingGql.client.query(@query_definition, variables:).to_h
-      raise query_result["errors"].first["message"] if query_result.key?("errors")
+      raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
       response = response_path.reduce(query_result) { |acc, k| acc[k] }
       return response.map { |item| item.deep_transform_keys(&:underscore) } if response.is_a?(::Array)
