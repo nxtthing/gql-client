@@ -1,6 +1,3 @@
-require "graphql/client"
-require "graphql/client/http"
-
 require "nxt_gql_client/api"
 require "nxt_gql_client/query"
 require "nxt_gql_client/invalid_response"

@@ -1,3 +1,6 @@
+require "graphql/client"
+require "graphql/client/http"
+
 module NxtGqlClient
   class Api
     attr_reader :url
@@ -8,20 +11,20 @@ module NxtGqlClient
 
     def client
       @client ||= begin
-                    result = ::GraphQL::Api.new(schema: schema, execute: http_client)
-                    result.allow_dynamic_queries = true
-                    result
-                  end
+        result = ::GraphQL::Client.new(schema: schema, execute: http_client)
+        result.allow_dynamic_queries = true
+        result
+      end
     end
 
     private
 
     def http_client
-      @http_client ||= ::GraphQL::Api::HTTP.new(url)
+      @http_client ||= ::GraphQL::Client::HTTP.new(url)
     end
 
     def schema
-      @schema ||= ::GraphQL::Api.load_schema(http_client)
+      @schema ||= ::GraphQL::Client.load_schema(http_client)
     end
   end
 end
