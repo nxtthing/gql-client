@@ -18,9 +18,9 @@ module NxtGqlClient
     end
   end
 
-  def api_url(val = nil)
-    if val
-      api = Api.new(val)
+  def gql_url(url = nil)
+    if url
+      api = Api.new(url)
       define_method :api do
         api
       end
