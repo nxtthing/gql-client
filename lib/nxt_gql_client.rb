@@ -1,7 +1,7 @@
 require "graphql/client"
 require "graphql/client/http"
 
-class NxtGraphqlModel
+class NxtGqlClient
   class InvalidResponse < StandardError
     attr_reader :response
 
@@ -19,7 +19,7 @@ class NxtGraphqlModel
 
     def call(vars = {})
       variables = deep_to_h(vars).deep_transform_keys { |k| k.to_s.camelize(:lower) }
-      query_result = NxtGraphqlModel.client.query(@query_definition, variables:).to_h
+      query_result = NxtGqlClient.client.query(@query_definition, variables:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
       response = response_path.reduce(query_result) { |acc, k| acc[k] }
@@ -76,10 +76,15 @@ class NxtGraphqlModel
                   end
     end
 
+    def schema_url(val = nil)
+      @schema_url = val if val
+      @schema_url
+    end
+
     private
 
     def http_client
-      @http_client ||= ::GraphQL::Client::HTTP.new(ENV.fetch("SCHEDULING_BACK_GQL_URL"))
+      @http_client ||= ::GraphQL::Client::HTTP.new(schema_url)
     end
 
     def schema
@@ -87,7 +92,7 @@ class NxtGraphqlModel
     end
 
     def parse_query(query:, response_path:)
-      definition = NxtGraphqlModel.client.parse(query)
+      definition = NxtGqlClient.client.parse(query)
       QueryCallerWrapper.new(query_definition: definition, response_path:)
     end
   end
