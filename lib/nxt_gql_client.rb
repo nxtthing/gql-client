@@ -24,10 +24,13 @@ module NxtGqlClient
     else
       api.url
     end
-
   end
 
   private
+
+  def api
+    raise "gql_api_url is not specified"
+  end
 
   def parse_query(query:, response_path:)
     definition = api.client.parse(query)

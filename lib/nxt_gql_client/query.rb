@@ -23,7 +23,7 @@ module NxtGqlClient
     def deep_to_h(params)
       params.transform_values do |value|
         case value
-        when GraphQL::Api::InputObject
+        when GraphQL::Schema::InputObject
           deep_to_h(value.to_h)
         when ::Time, ::Date
           value.iso8601
