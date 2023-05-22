@@ -1,9 +1,10 @@
 module NxtGqlClient
   class Query
-    def initialize(query_definition:, api:, response_path: nil)
+    def initialize(query_definition:, api:, wrapper:, response_path: nil)
       @api = api
       @query_definition = query_definition
       @response_path = response_path
+      @wrapper = wrapper
     end
 
     def call(vars = {})
@@ -15,10 +16,20 @@ module NxtGqlClient
       return response.map { |item| item.deep_transform_keys(&:underscore) } if response.is_a?(::Array)
       return response if response.is_a?(::TrueClass) or response.is_a?(::FalseClass)
 
-      response && response.deep_transform_keys(&:underscore)
+      response && result(response.deep_transform_keys(&:underscore))
     end
 
     private
+
+    def result(response)
+      if response.has_key?("nodes") && response.has_key?("total")
+        ResultsPage.new(response) do |node_response|
+          @wrapper.new(node_response)
+        end
+      else
+        @wrapper.new(response)
+      end
+    end
 
     def deep_to_h(params)
       params.transform_values do |value|

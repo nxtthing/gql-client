@@ -7,4 +7,5 @@ Gem::Specification.new do |s|
   s.files       = ["lib/nxt_gql_client.rb"]
   s.license       = "MIT"
   s.add_dependency "graphql-client"
+  s.add_dependency "activesupport"
 end

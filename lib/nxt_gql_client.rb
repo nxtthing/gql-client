@@ -1,39 +1,60 @@
 require "nxt_gql_client/api"
 require "nxt_gql_client/query"
+require "nxt_gql_client/results_page"
 require "nxt_gql_client/invalid_response"
 
 module NxtGqlClient
-  def query(name, gql, response_path = nil)
-    define_singleton_method name do |**args|
-      var_name = "@#{name}"
-      definition = if instance_variable_defined?(var_name)
-                     instance_variable_get(var_name)
-                   else
-                     instance_variable_set(var_name, parse_query(query: gql, response_path:))
-                   end
-      definition.call(**args)
-    end
+  extend ActiveSupport::Concern
+
+  included do
+    attr_reader :object
   end
 
-  def gql_api_url(url = nil)
-    if url
-      api = Api.new(url)
-      define_singleton_method :api do
-        api
+  def initialize(response)
+    @object = response
+  end
+
+  class_methods do
+    def query(name, gql, response_path = nil)
+      define_singleton_method name do |**args|
+        var_name = "@#{name}"
+        definition = if instance_variable_defined?(var_name)
+                       instance_variable_get(var_name)
+                     else
+                       instance_variable_set(var_name, parse_query(query: gql, response_path:))
+                     end
+        definition.call(**args)
       end
-    else
-      api.url
     end
-  end
 
-  private
+    def attributes(*attribute_names)
+      attribute_names.each do |attribute_name|
+        define_method attribute_name do
+          @object[attribute_name.to_s]
+        end
+      end
+    end
 
-  def api
-    raise "gql_api_url is not specified"
-  end
+    def gql_api_url(url = nil)
+      if url
+        api = Api.new(url)
+        define_singleton_method :api do
+          api
+        end
+      else
+        api.url
+      end
+    end
 
-  def parse_query(query:, response_path:)
-    definition = api.client.parse(query)
-    Query.new(query_definition: definition, api:, response_path:)
+    private
+
+    def api
+      raise "gql_api_url is not specified"
+    end
+
+    def parse_query(query:, response_path:)
+      definition = api.client.parse(query)
+      Query.new(query_definition: definition, api:, response_path:, wrapper: self)
+    end
   end
 end
