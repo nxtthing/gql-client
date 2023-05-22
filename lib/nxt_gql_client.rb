@@ -11,7 +11,14 @@ module NxtGqlClient
   end
 
   def initialize(response)
-    @object = response
+    @object = response.symbolize_keys
+  end
+
+  private
+
+  def association_cache(name)
+    @association_cache ||= {}
+    @association_cache[name] ||= yield
   end
 
   class_methods do
@@ -30,7 +37,23 @@ module NxtGqlClient
     def attributes(*attribute_names)
       attribute_names.each do |attribute_name|
         define_method attribute_name do
-          @object[attribute_name.to_s]
+          @object[attribute_name]
+        end
+      end
+    end
+
+    def has_many(association_name, wrapper:)
+      define_method association_name do
+        association_cache(association_name) do
+          @object[association_name].map { |attrs| wrapper.new(attrs) }
+        end
+      end
+    end
+
+    def has_one(association_name, wrapper:)
+      define_method association_name do
+        association_cache(association_name) do
+          wrapper.new(@object[association_name])
         end
       end
     end
