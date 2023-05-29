@@ -23,13 +23,24 @@ module NxtGqlClient
     end
 
     class_methods do
-      def query(name, gql, response_path = nil)
-        define_singleton_method name do |**args|
-          var_name = "@#{name}"
-          definition = if instance_variable_defined?(var_name)
-                         instance_variable_get(var_name)
+      def query(name, gql = nil, response_path = nil)
+        define_singleton_method name do |resolver: nil, **args|
+          definition = if block_given?
+                         response_gql = node_to_gql(
+                           node: resolver_to_node(resolver),
+                           type: type_to_resolver_type(resolver.class.type)
+                         )
+                         parse_query(
+                           query: yield(response_gql),
+                           response_path:
+                         )
                        else
-                         instance_variable_set(var_name, parse_query(query: gql, response_path:))
+                         var_name = "@#{name}"
+                         if instance_variable_defined?(var_name)
+                           instance_variable_get(var_name)
+                         else
+                           instance_variable_set(var_name, parse_query(query: gql, response_path:))
+                         end
                        end
           definition.call(**args)
         end
@@ -76,14 +87,43 @@ module NxtGqlClient
         raise "gql_api_url is not specified"
       end
 
-      def parse_dynamic_query(query:, response_path:)
+      def parse_query(query:, response_path:)
         definition = api.client.parse(query)
         Query.new(query_definition: definition, api:, response_path:, wrapper: self)
       end
 
-      def parse_query(query:, response_path:)
-        definition = api.client.parse(query)
-        Query.new(query_definition: definition, api:, response_path:, wrapper: self)
+      def resolver_to_node(resolver)
+        node = resolver.context.query.document.definitions.each do |definition|
+          definition.selections.each do |selection|
+            node = selection.
+              children.
+              find { |child| child.name == resolver.object.field.name }.
+              children.
+              find { |child| child.name == resolver.field.name }
+            return node if node
+
+            node
+          end
+        end
+      end
+
+      def type_to_resolver_type(type)
+        return type unless type.respond_to?(:of_type)
+
+        type_to_resolver_type(type.of_type)
+      end
+
+      def node_to_gql(node:, type:)
+        return if node.children.empty?
+
+        fields = node.children.map do |child|
+          field = type.fields[child.name]
+          next unless field
+
+          field_name = field.method_sym != field.original_name ? field.method_str : field.name
+          "#{ field_name }#{ node_to_gql(node: child, type: type_to_resolver_type(field.type)) }"
+        end
+        " { #{ fields.compact.join("\n") } }"
       end
     end
   end
