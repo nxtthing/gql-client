@@ -24,9 +24,9 @@ module NxtGqlClient
 
     class_methods do
       def query(name, gql = nil, response_path = nil)
-        define_singleton_method name do |resolver: nil, **args|
+        define_singleton_method name do |resolver: nil, response_gql: nil, **args|
           definition = if block_given?
-                         response_gql = node_to_gql(
+                         response_gql ||= node_to_gql(
                            node: resolver_to_node(resolver),
                            type: type_to_resolver_type(resolver.class.type)
                          )
