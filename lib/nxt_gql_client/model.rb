@@ -108,16 +108,19 @@ module NxtGqlClient
       end
 
       def node_to_gql(node:, type:)
-        return if node.children.empty?
-
         fields = node.children.map do |child|
+          next unless type.respond_to?(:fields)
+
           field = type.fields[child.name]
           next unless field
 
           field_name = field.method_sym != field.original_name ? field.method_str : field.name
           "#{ field_name }#{ node_to_gql(node: child, type: field.type.unwrap) }"
-        end
-        " { #{ fields.compact.join("\n") } }"
+        end.compact
+
+        return if fields.empty?
+
+        " { #{ fields.join("\n") } }"
       end
     end
   end
