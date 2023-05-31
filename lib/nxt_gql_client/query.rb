@@ -22,7 +22,7 @@ module NxtGqlClient
     private
 
     def result(response)
-      if response.has_key?("nodes") && response.has_key?("total")
+      if (response.keys - ["nodes", "total"]).empty?
         ResultsPage.new(response) do |node_response|
           @wrapper.new(node_response)
         end

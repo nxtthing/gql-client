@@ -114,7 +114,7 @@ module NxtGqlClient
           field = type.fields[child.name]
           next unless field
 
-          field_name = field.method_sym != field.original_name ? field.method_str : field.name
+          field_name = field.method_sym == field.original_name ? field.name : field.method_str
           "#{ field_name }#{ node_to_gql(node: child, type: field.type.unwrap) }"
         end.compact
 
