@@ -9,6 +9,7 @@ module NxtGqlClient
 
     included do
       attr_reader :object
+      delegate :dig, to: :object
     end
 
     def initialize(response)
@@ -93,7 +94,7 @@ module NxtGqlClient
       end
 
       def resolver_to_node(resolver)
-        node = resolver.context.query.document.definitions.each do |definition|
+        resolver.context.query.document.definitions.each do |definition|
           definition.selections.each do |selection|
             node = selection.
               children.
@@ -120,7 +121,7 @@ module NxtGqlClient
 
         return if fields.empty?
 
-        " { #{ fields.join("\n") } }"
+        %( { #{ fields.join("\n") } })
       end
     end
   end
