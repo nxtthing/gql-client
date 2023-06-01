@@ -9,7 +9,6 @@ module NxtGqlClient
 
     included do
       attr_reader :object
-      delegate :dig, to: :object
     end
 
     def initialize(response)
@@ -116,7 +115,7 @@ module NxtGqlClient
           next unless field
 
           field_name = field.method_sym == field.original_name ? field.name : field.method_str
-          "#{ field_name }#{ node_to_gql(node: child, type: field.type.unwrap) }"
+          "#{ field_name.camelize(:lower) }#{ node_to_gql(node: child, type: field.type.unwrap) }"
         end.compact
 
         return if fields.empty?
