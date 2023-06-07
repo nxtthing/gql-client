@@ -1,3 +1,5 @@
+require "nxt_gql_client/invalid_response"
+
 module NxtGqlClient
   module ProxyResolver
     def resolve(**params)
