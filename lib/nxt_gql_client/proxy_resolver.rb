@@ -5,7 +5,7 @@ module NxtGqlClient
     def resolve(**params)
       query_name = self.class.name.demodulize.downcase
       self.class.type.unwrap.proxy_model.send(query_name, resolver: self, **params)
-    rescue NxtSchedulingGql::InvalidResponse => exc
+    rescue InvalidResponse => exc
       handle_invalid_response_error(exc)
     end
 
