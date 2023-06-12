@@ -28,7 +28,7 @@ module NxtGqlClient
           definition = if block_given?
                          response_gql ||= node_to_gql(
                            node: resolver_to_node(resolver),
-                           type: resolver.class.type.unwrap
+                           type: ::Array.wrap(resolver.class.type).first.unwrap
                          )
                          parse_query(
                            query: yield(response_gql),
@@ -115,7 +115,7 @@ module NxtGqlClient
           next unless field
 
           field_name = field.method_sym == field.original_name ? field.name : field.method_str
-          "#{ field_name.camelize(:lower) }#{ node_to_gql(node: child, type: field.type.unwrap) }"
+          "#{ field_name.camelize(:lower) }#{ node_to_gql(node: child, type: Array.wrap(field.type).first.unwrap) }"
         end.compact
 
         return if fields.empty?
