@@ -65,7 +65,8 @@ module NxtGqlClient
       def has_one(association_name, wrapper:)
         define_method association_name do
           association_cache(association_name) do
-            wrapper.new(@object[association_name])
+            value = @object[association_name]
+            value && wrapper.new(value)
           end
         end
       end
