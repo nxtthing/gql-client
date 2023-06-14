@@ -45,9 +45,10 @@ module NxtGqlClient
           definition.call(**args)
         end
 
-        if respond_to?(:async_job)
+        if api.async?
+          require "nxt_gql_client/async_query_job"
           define_singleton_method "#{name}_later" do |**args|
-            async_job.perform_later(self.name, name, args)
+            AsyncQueryJob.perform_later(__FILE__ , self.name, name, args)
           end
         end
       end
@@ -77,24 +78,14 @@ module NxtGqlClient
         end
       end
 
-      def gql_api_url(url = nil)
+      def gql_api_url(url = nil, async: false)
         if url
-          api = Api.new(url)
+          api = Api.new(url, async)
           define_singleton_method :api do
             api
           end
         else
           api.url
-        end
-      end
-
-      def gql_async_job(job = nil)
-        if job
-          define_singleton_method :async_job do
-            job
-          end
-        else
-          respond_to?(:async_job) && send(:async_job)
         end
       end
 
