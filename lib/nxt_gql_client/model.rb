@@ -26,7 +26,7 @@ module NxtGqlClient
       def query(name, gql = nil, response_path = nil)
         define_singleton_method name do |resolver: nil, response_gql: nil, **args|
           definition = if block_given?
-                         response_gql ||= node_to_gql(
+                         response_gql ||= resolver && node_to_gql(
                            node: resolver_to_node(resolver),
                            type: ::Array.wrap(resolver.class.type).first.unwrap
                          )
