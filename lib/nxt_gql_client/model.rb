@@ -44,6 +44,12 @@ module NxtGqlClient
                        end
           definition.call(**args)
         end
+
+        if respond_to?(:async_job)
+          define_singleton_method "#{name}_later" do |**args|
+            async_job.perform_later(self.name, name, args)
+          end
+        end
       end
 
       def attributes(*attribute_names)
@@ -79,6 +85,16 @@ module NxtGqlClient
           end
         else
           api.url
+        end
+      end
+
+      def gql_async_job(job = nil)
+        if job
+          define_singleton_method :async_job do
+            job
+          end
+        else
+          respond_to?(:async_job) && send(:async_job)
         end
       end
 
