@@ -45,7 +45,7 @@ module NxtGqlClient
           definition.call(**args)
         end
 
-        if api.async?
+        if async?
           require "nxt_gql_client/async_query_job"
           define_singleton_method "#{name}_later" do |**args|
             AsyncQueryJob.perform_later(
@@ -89,12 +89,21 @@ module NxtGqlClient
           define_singleton_method :api do
             api
           end
+          if async
+            define_singleton_method :async? do
+              true
+            end
+          end
         else
           api.url
         end
       end
 
       private
+
+      def async?
+        false
+      end
 
       def api
         raise "gql_api_url is not specified"
