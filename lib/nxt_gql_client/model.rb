@@ -48,7 +48,12 @@ module NxtGqlClient
         if api.async?
           require "nxt_gql_client/async_query_job"
           define_singleton_method "#{name}_later" do |**args|
-            AsyncQueryJob.perform_later(__FILE__ , self.name, name, args)
+            AsyncQueryJob.perform_later(
+              ".#{Object.const_source_location(self.name)[0].remove(::Rails.root.to_s)}",
+              self.name,
+              name,
+              args
+            )
           end
         end
       end
