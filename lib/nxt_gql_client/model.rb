@@ -87,7 +87,7 @@ module NxtGqlClient
 
       def gql_api_url(url = nil, async: false)
         if url
-          api = Api.new(url, async)
+          api = Api.new(url)
           define_singleton_method :api do
             api
           end

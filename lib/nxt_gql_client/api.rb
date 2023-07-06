@@ -10,7 +10,7 @@ module NxtGqlClient
     end
 
     def active?
-      !@url.nil?
+      @url.present?
     end
 
     def client
