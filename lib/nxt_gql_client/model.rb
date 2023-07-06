@@ -25,6 +25,8 @@ module NxtGqlClient
     class_methods do
       def query(name, gql = nil, response_path = nil)
         define_singleton_method name do |resolver: nil, response_gql: nil, **args|
+          return if !api.active? && !::Rails.env.production?
+
           definition = if block_given?
                          response_gql ||= resolver && node_to_gql(
                            node: resolver_to_node(resolver),

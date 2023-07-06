@@ -5,13 +5,12 @@ module NxtGqlClient
   class Api
     attr_reader :url
 
-    def initialize(url, async)
+    def initialize(url)
       @url = url
-      @async = async
     end
 
-    def async?
-      !!@async
+    def active?
+      !@url.nil?
     end
 
     def client
