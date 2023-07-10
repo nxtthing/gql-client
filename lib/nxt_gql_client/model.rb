@@ -9,7 +9,9 @@ module NxtGqlClient
 
     included do
       attr_reader :object
+      delegate :[], to: :object
     end
+
 
     def initialize(response)
       @object = response.symbolize_keys
