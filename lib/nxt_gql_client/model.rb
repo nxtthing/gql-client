@@ -69,7 +69,7 @@ module NxtGqlClient
       end
 
       def has_many(association_name, class_name: nil)
-        define_method association_name do
+        define_method association_name do |**_args|
           wrapper = self.class.association_class(association_name:, class_name:)
           association_cache(association_name) do
             @object[association_name].map { |attrs| wrapper.new(attrs) }
@@ -80,7 +80,7 @@ module NxtGqlClient
       def has_one(association_name, class_name: nil)
         define_method association_name do
           wrapper = self.class.association_class(association_name:, class_name:)
-          association_cache(association_name) do
+          association_cache(association_name) do |**_args|
             value = @object[association_name]
             value && wrapper.new(value)
           end
