@@ -155,7 +155,17 @@ module NxtGqlClient
           next unless field
 
           field_name = field.method_sym == field.original_name ? field.name : field.method_str
-          "#{ field_name.camelize(:lower) }#{ node_to_gql(node: child, type: Array.wrap(field.type).first.unwrap) }"
+          arguments = if child.arguments.present?
+                        printer = GraphQL::Language::Printer.new
+                        "(#{child.arguments.map { |a| printer.print(a) }.join(", ")})"
+                      else
+                        ""
+                      end
+          [
+            field_name.camelize(:lower),
+            arguments,
+            node_to_gql(node: child, type: Array.wrap(field.type).first.unwrap)
+          ].join
         end.compact
 
         return if fields.empty?
