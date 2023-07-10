@@ -70,7 +70,7 @@ module NxtGqlClient
 
       def has_many(association_name, class_name: nil)
         define_method association_name do
-          wrapper = association_class(association_name:, class_name:)
+          wrapper = self.class.association_class(association_name:, class_name:)
           association_cache(association_name) do
             @object[association_name].map { |attrs| wrapper.new(attrs) }
           end
@@ -79,7 +79,7 @@ module NxtGqlClient
 
       def has_one(association_name, class_name: nil)
         define_method association_name do
-          wrapper = association_class(association_name:, class_name:)
+          wrapper = self.class.association_class(association_name:, class_name:)
           association_cache(association_name) do
             value = @object[association_name]
             value && wrapper.new(value)
@@ -103,11 +103,21 @@ module NxtGqlClient
         end
       end
 
-      private
-
       def association_class(association_name:, class_name:)
-        class_name&.constantize || association_name.singularize.camelize.constantize
+        @association_class_per_name ||= {}
+        @association_class_per_name[association_name] ||= begin
+                                                            class_name ||= association_name.to_s.singularize.camelize
+                                                            begin
+                                                              class_name.constantize
+                                                            rescue NameError
+                                                              class_name_name_spaces = name.split("::")
+                                                              class_name_name_spaces[class_name_name_spaces.size - 1] = class_name
+                                                              class_name_name_spaces.join("::").constantize
+                                                            end
+                                                          end
       end
+
+      private
 
       def async?
         false
