@@ -36,6 +36,12 @@ module NxtGqlClient
         case value
         when GraphQL::Schema::InputObject
           deep_to_h(value.to_h)
+        when ::Array
+          if value.first.is_a?(GraphQL::Schema::InputObject)
+            value.map { |v| deep_to_h(v.to_h) }
+          else
+            value
+          end
         when ::Time, ::Date
           value.iso8601
         else
