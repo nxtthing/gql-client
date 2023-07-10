@@ -68,16 +68,18 @@ module NxtGqlClient
         end
       end
 
-      def has_many(association_name, wrapper:)
+      def has_many(association_name, class_name: nil)
         define_method association_name do
+          wrapper = association_class(association_name:, class_name:)
           association_cache(association_name) do
             @object[association_name].map { |attrs| wrapper.new(attrs) }
           end
         end
       end
 
-      def has_one(association_name, wrapper:)
+      def has_one(association_name, class_name: nil)
         define_method association_name do
+          wrapper = association_class(association_name:, class_name:)
           association_cache(association_name) do
             value = @object[association_name]
             value && wrapper.new(value)
@@ -102,6 +104,10 @@ module NxtGqlClient
       end
 
       private
+
+      def association_class(association_name:, class_name:)
+        class_name&.constantize || association_name.singularize.camelize.constantize
+      end
 
       def async?
         false
