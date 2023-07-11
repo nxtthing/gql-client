@@ -4,11 +4,15 @@ module NxtGqlClient
 
     included do
       class_eval do
-        def initialize(*args, proxy_ignore_attrs: false, **kwargs, &block)
+        def initialize(*args, ignore_proxy_attrs: false, **kwargs, &block)
           super(*args, **kwargs, &block)
-          @proxy_ignore_attrs = proxy_ignore_attrs
+          @ignore_proxy_attrs = ignore_proxy_attrs
         end
       end
+    end
+
+    def proxy_attrs?
+      !@ignore_proxy_attrs
     end
   end
 end
