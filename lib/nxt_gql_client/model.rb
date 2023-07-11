@@ -33,7 +33,7 @@ module NxtGqlClient
           definition = if block_given?
                          response_gql ||= resolver && node_to_gql(
                            node: resolver_to_node(resolver),
-                           type: field_type(resolver.class),
+                           type: Model.field_type(resolver.class),
                            context: resolver.context
                          )
                          parse_query(
@@ -121,10 +121,6 @@ module NxtGqlClient
                                                           end
       end
 
-      def field_type(field_class)
-        ::Array.wrap(field_class.type).first.unwrap
-      end
-
       private
 
       def async?
@@ -173,7 +169,7 @@ module NxtGqlClient
           [
             field_name.camelize(:lower),
             arguments,
-            node_to_gql(node: child, type: field_type(field), context:)
+            node_to_gql(node: child, type: Model.field_type(field), context:)
           ].join
         end.compact
 
@@ -181,6 +177,10 @@ module NxtGqlClient
 
         %( { #{ fields.join("\n") } })
       end
+    end
+
+    def self.field_type(field_class)
+      ::Array.wrap(field_class.type).first.unwrap
     end
   end
 end
