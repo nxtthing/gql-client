@@ -157,12 +157,14 @@ module NxtGqlClient
           next unless field
 
           field_name = field.method_sym == field.original_name ? field.name : field.method_str
-          arguments = if field.is_a?(ProxyField) && field.proxy_attrs? && child.arguments.present?
+
+          arguments = if field.is_a?(ProxyField) && field.proxy_attrs? && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
                         printer = GraphQL::Language::Printer.new
                         "(#{child.arguments.map { |a| printer.print(a) }.join(", ")})"
                       else
                         ""
                       end
+
           [
             field_name.camelize(:lower),
             arguments,
