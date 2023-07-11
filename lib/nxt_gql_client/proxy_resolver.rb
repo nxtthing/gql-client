@@ -4,7 +4,7 @@ module NxtGqlClient
   module ProxyResolver
     def resolve(**params)
       query_name = self.class.name.demodulize.underscore
-      Array.wrap(self.class.type).first.unwrap.proxy_model.send(query_name, resolver: self, **params)
+      Model.field_type(self.class).proxy_model.send(query_name, resolver: self, **params)
     rescue InvalidResponse => exc
       handle_invalid_response_error(exc)
     end

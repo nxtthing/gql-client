@@ -2,6 +2,7 @@ require "nxt_gql_client/api"
 require "nxt_gql_client/query"
 require "nxt_gql_client/results_page"
 require "nxt_gql_client/invalid_response"
+require "nxt_gql_client/printer"
 
 module NxtGqlClient
   module Model
@@ -32,7 +33,8 @@ module NxtGqlClient
           definition = if block_given?
                          response_gql ||= resolver && node_to_gql(
                            node: resolver_to_node(resolver),
-                           type: ::Array.wrap(resolver.class.type).first.unwrap
+                           type: field_type(resolver.class),
+                           context: resolver.context
                          )
                          parse_query(
                            query: yield(response_gql),
@@ -119,6 +121,10 @@ module NxtGqlClient
                                                           end
       end
 
+      def field_type(field_class)
+        ::Array.wrap(field_class.type).first.unwrap
+      end
+
       private
 
       def async?
@@ -149,7 +155,7 @@ module NxtGqlClient
         end
       end
 
-      def node_to_gql(node:, type:)
+      def node_to_gql(node:, type:, context:)
         fields = node.children.map do |child|
           next unless type.respond_to?(:fields)
 
@@ -159,8 +165,7 @@ module NxtGqlClient
           field_name = field.method_sym == field.original_name ? field.name : field.method_str
 
           arguments = if field.is_a?(ProxyField) && field.proxy_attrs? && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
-                        printer = GraphQL::Language::Printer.new
-                        "(#{child.arguments.map { |a| printer.print(a) }.join(", ")})"
+                        Printer.new(context:).print_args(child.arguments)
                       else
                         ""
                       end
@@ -168,7 +173,7 @@ module NxtGqlClient
           [
             field_name.camelize(:lower),
             arguments,
-            node_to_gql(node: child, type: Array.wrap(field.type).first.unwrap)
+            node_to_gql(node: child, type: field_type(field), context:)
           ].join
         end.compact
 
