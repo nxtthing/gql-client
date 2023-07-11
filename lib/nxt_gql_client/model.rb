@@ -165,7 +165,7 @@ module NxtGqlClient
           field_name = field.method_sym == field.original_name ? field.name : field.method_str
 
           arguments = if field.is_a?(ProxyField) && field.proxy_attrs? && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
-                        Printer.new(context:).print_args(child.arguments)
+                        Printer.new(context:, field:).print_args(child.arguments)
                       else
                         ""
                       end
