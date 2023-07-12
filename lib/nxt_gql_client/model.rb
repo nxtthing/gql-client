@@ -3,6 +3,7 @@ require "nxt_gql_client/query"
 require "nxt_gql_client/results_page"
 require "nxt_gql_client/invalid_response"
 require "nxt_gql_client/printer"
+require "nxt_gql_client/proxy_field"
 
 module NxtGqlClient
   module Model
