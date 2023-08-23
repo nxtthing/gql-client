@@ -156,6 +156,11 @@ module NxtGqlClient
         fields = node.children.map do |child|
           next unless type.respond_to?(:fields)
 
+          if child.is_a?(GraphQL::Language::Nodes::FragmentSpread)
+            fragment_definition = context.query.fragments[child.name]
+            next node_to_gql(node: fragment_definition, type:, context:)
+          end
+
           field = type.fields[child.name]
           next unless field
 
@@ -176,7 +181,11 @@ module NxtGqlClient
 
         return if fields.empty?
 
-        %( { #{ fields.join("\n") } })
+        if node.is_a?(GraphQL::Language::Nodes::FragmentDefinition)
+          %( #{ fields.join("\n") } )
+        else
+          %( { #{ fields.join("\n") } })
+        end
       end
     end
 
