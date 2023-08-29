@@ -7,9 +7,9 @@ module NxtGqlClient
       @wrapper = wrapper
     end
 
-    def call(vars = {})
+    def call(context: {}, **vars)
       variables = deep_to_h(vars).deep_transform_keys { |k| k.to_s.camelize(:lower) }
-      query_result = @api.client.query(@query_definition, variables:).to_h
+      query_result = @api.client.query(@query_definition, variables:, context:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
       response = response_path.reduce(query_result) { |acc, k| acc[k] }
