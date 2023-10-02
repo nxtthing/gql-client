@@ -67,7 +67,7 @@ module NxtGqlClient
 
       def attributes(*attribute_names)
         attribute_names.each do |attribute_name|
-          define_method attribute_name do
+          define_method attribute_name do |**_args|
             @object[attribute_name]
           end
         end

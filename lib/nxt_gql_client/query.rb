@@ -8,7 +8,7 @@ module NxtGqlClient
     end
 
     def call(context: {}, **vars)
-      variables = deep_to_h(vars).deep_transform_keys { |k| k.to_s.camelize(:lower) }
+      variables = vars.transform_values { |v| deep_to_h(v) }.deep_transform_keys { |k| k.to_s.camelize(:lower) }
       query_result = @api.client.query(@query_definition, variables:, context:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
@@ -31,22 +31,16 @@ module NxtGqlClient
       end
     end
 
-    def deep_to_h(params)
-      params.transform_values do |value|
-        case value
-        when GraphQL::Schema::InputObject
-          deep_to_h(value.to_h)
-        when ::Array
-          if value.first.is_a?(GraphQL::Schema::InputObject)
-            value.map { |v| deep_to_h(v.to_h) }
-          else
-            value
-          end
-        when ::Time, ::Date
-          value.iso8601
-        else
-          value
-        end
+    def deep_to_h(value)
+      case value
+      when GraphQL::Schema::InputObject
+        value.map { |k, v| [k, deep_to_h(v)] }.to_h
+      when ::Array
+        value.map { |v| deep_to_h(v) }
+      when ::Time, ::Date
+        value.iso8601
+      else
+        value
       end
     end
 
