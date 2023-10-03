@@ -13,7 +13,7 @@ module NxtGqlClient
     private
 
     def print_variable_identifier(variable_identifier)
-      @context.query.provided_variables[variable_identifier.name].to_json
+      GraphQL::Language.serialize(@context.query.provided_variables[variable_identifier.name])
     end
 
     def print_argument(argument)
