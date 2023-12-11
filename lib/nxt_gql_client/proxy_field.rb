@@ -3,16 +3,20 @@ module NxtGqlClient
     extend ActiveSupport::Concern
 
     included do
+      attr_reader :proxy_attrs, :proxy_children
+
       class_eval do
-        def initialize(*args, ignore_proxy_attrs: false, **kwargs, &block)
+        def initialize(*args, proxy_attrs: true, proxy_children: true, proxy_alias: nil, **kwargs, &block)
           super(*args, **kwargs, &block)
-          @ignore_proxy_attrs = ignore_proxy_attrs
+          @proxy_attrs = proxy_attrs
+          @proxy_children = proxy_children
+          @proxy_alias = proxy_alias
         end
       end
-    end
 
-    def proxy_attrs?
-      !@ignore_proxy_attrs
+      def proxy_name
+        @proxy_alias || (method_sym == original_name ? name : method_str)
+      end
     end
   end
 end

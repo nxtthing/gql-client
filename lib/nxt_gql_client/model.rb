@@ -164,9 +164,11 @@ module NxtGqlClient
           field = type.fields[child.name]
           next unless field
 
-          field_name = field.method_sym == field.original_name ? field.name : field.method_str
+          is_proxy_field = field.is_a?(ProxyField)
 
-          arguments = if field.is_a?(ProxyField) && field.proxy_attrs? && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
+          field_name = is_proxy_field ? field.proxy_name : field.name
+
+          arguments = if is_proxy_field && field.proxy_attrs && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
                         Printer.new(context:, field:).print_args(child.arguments)
                       else
                         ""
@@ -175,7 +177,7 @@ module NxtGqlClient
           [
             field_name.camelize(:lower),
             arguments,
-            node_to_gql(node: child, type: Model.field_type(field), context:)
+            (!is_proxy_field || field.proxy_children) ? node_to_gql(node: child, type: Model.field_type(field), context:) : nil
           ].join
         end.compact
 
