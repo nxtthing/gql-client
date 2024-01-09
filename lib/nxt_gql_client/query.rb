@@ -33,7 +33,7 @@ module NxtGqlClient
 
     def deep_to_h(value)
       case value
-      when GraphQL::Schema::InputObject
+      when GraphQL::Schema::InputObject, Hash
         value.map { |k, v| [k, deep_to_h(v)] }.to_h
       when ::Array
         value.map { |v| deep_to_h(v) }
