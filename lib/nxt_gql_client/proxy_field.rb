@@ -3,12 +3,13 @@ module NxtGqlClient
     extend ActiveSupport::Concern
 
     included do
-      attr_reader :proxy_attrs, :proxy_children
+      attr_reader :proxy_attrs, :proxy_children, :proxy
 
       class_eval do
-        def initialize(*args, proxy_attrs: true, proxy_children: true, proxy_alias: nil, **kwargs, &block)
+        def initialize(*args, proxy: true, proxy_attrs: true, proxy_children: true, proxy_alias: nil, **kwargs, &block)
           super(*args, **kwargs, &block)
           @proxy_attrs = proxy_attrs
+          @proxy = proxy
           @proxy_children = proxy_children
           @proxy_alias = proxy_alias
         end

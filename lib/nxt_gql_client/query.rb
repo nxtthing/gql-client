@@ -24,11 +24,16 @@ module NxtGqlClient
     def result(response)
       if (response.keys - ["nodes", "total"]).empty?
         ResultsPage.new(response) do |node_response|
-          @wrapper.new(node_response)
+          wrap(node_response)
         end
       else
-        @wrapper.new(response)
+        wrap(response)
       end
+    end
+
+    def wrap(object)
+      object = object.symbolize_keys
+      @wrapper.resolve_class(object).new(object)
     end
 
     def deep_to_h(value)
@@ -46,12 +51,12 @@ module NxtGqlClient
 
     def response_path
       @response_path ||= begin
-        k1 = @query_definition.schema_class.defined_fields.keys.first
-        k2_class = @query_definition.schema_class.defined_fields[k1]
-        k2_class = k2_class.of_klass until k2_class.respond_to?(:defined_fields)
-        k2 = k2_class.defined_fields.keys.first
-        ["data", k1, k2]
-      end
+                           k1 = @query_definition.schema_class.defined_fields.keys.first
+                           k2_class = @query_definition.schema_class.defined_fields[k1]
+                           k2_class = k2_class.of_klass until k2_class.respond_to?(:defined_fields)
+                           k2 = k2_class.defined_fields.keys.first
+                           ["data", k1, k2]
+                         end
     end
   end
 end
