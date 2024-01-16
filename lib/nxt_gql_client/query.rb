@@ -31,8 +31,8 @@ module NxtGqlClient
       end
     end
 
-    def wrap(object)
-      object = object.symbolize_keys
+    def wrap(response)
+      object = response.deep_symbolize_keys
       @wrapper.resolve_class(object).new(object)
     end
 
