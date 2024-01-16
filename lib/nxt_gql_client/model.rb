@@ -203,6 +203,14 @@ module NxtGqlClient
             next "...#{child.name}"
           end
 
+          if child.is_a?(GraphQL::Language::Nodes::InlineFragment)
+            fragment_typename = child.type.name
+            fragment_type = context.schema.types[fragment_typename]
+            proxy_typename = fragment_type.proxy_model.typename
+            fragment_gql = node_to_gql(node: child, type: fragment_type, context:, fragments:)
+            next "... on #{ proxy_typename } #{ fragment_gql }"
+          end
+
           field = type.fields[child.name]
           next unless field
 
