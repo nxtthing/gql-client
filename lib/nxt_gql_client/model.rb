@@ -95,8 +95,8 @@ module NxtGqlClient
         end
       end
 
-      def resolve_class(_object)
-        self
+      def resolve_class(object)
+        ([self] + descendants).find { |c| c.typename == object[:__typename] }
       end
 
       def has_many(association_name, class_name: nil)
