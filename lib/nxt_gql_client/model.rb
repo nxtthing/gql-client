@@ -15,8 +15,8 @@ module NxtGqlClient
     end
 
 
-    def initialize(response)
-      @object = response
+    def initialize(object)
+      @object = object
     end
 
     def self.field_type(field_class)
