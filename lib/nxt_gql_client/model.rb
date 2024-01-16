@@ -15,8 +15,12 @@ module NxtGqlClient
     end
 
 
-    def initialize(response)
-      @object = response.symbolize_keys
+    def initialize(object)
+      @object = object
+    end
+
+    def self.field_type(field_class)
+      ::Array.wrap(field_class.type).first.unwrap
     end
 
     private
@@ -32,13 +36,23 @@ module NxtGqlClient
           return if !api.active? && !::Rails.env.production?
 
           definition = if block_given?
+                         fragments = []
                          response_gql ||= resolver && node_to_gql(
                            node: resolver_to_node(resolver),
                            type: Model.field_type(resolver.class),
-                           context: resolver.context
+                           context: resolver.context,
+                           fragments:
                          )
+
+                         gql = [
+                           yield(response_gql),
+                           fragments.map do |fragment|
+                             "fragment #{fragment[:name]} on #{fragment[:proxy_typename]} { #{fragment[:gql]} }"
+                           end.join("\n")
+                         ].compact_blank.join("\n")
+
                          parse_query(
-                           query: yield(response_gql),
+                           query: gql,
                            response_path:
                          )
                        else
@@ -71,6 +85,21 @@ module NxtGqlClient
             @object[attribute_name]
           end
         end
+      end
+
+      def typename(value = nil)
+        if value
+          @typename = value
+        else
+          @typename ||= name.demodulize
+        end
+      end
+
+      def resolve_class(object)
+        typename = object[:__typename]
+        return self unless typename
+
+        ([self] + descendants).find { |c| c.typename == typename }
       end
 
       def has_many(association_name, class_name: nil)
@@ -152,19 +181,41 @@ module NxtGqlClient
         end
       end
 
-      def node_to_gql(node:, type:, context:)
+      def node_to_gql(node:, type:, context:, fragments:)
+        return unless type.respond_to?(:fields)
+
         fields = node.children.map do |child|
-          next unless type.respond_to?(:fields)
+          next if child.is_a?(GraphQL::Language::Nodes::InputObject)
 
           if child.is_a?(GraphQL::Language::Nodes::FragmentSpread)
             fragment_definition = context.query.fragments[child.name]
-            next node_to_gql(node: fragment_definition, type:, context:)
+            fragment_typename = fragment_definition.type.name
+            fragment_type = context.schema.types[fragment_typename]
+
+            fragment = { name: child.name, type: fragment_type, proxy_typename: fragment_type.proxy_model.typename }
+            fragments << fragment
+            fragment[:gql] = node_to_gql(
+              node: fragment_definition,
+              type: fragment_type,
+              context:,
+              fragments:
+            )
+            next "...#{child.name}"
+          end
+
+          if child.is_a?(GraphQL::Language::Nodes::InlineFragment)
+            fragment_typename = child.type.name
+            fragment_type = context.schema.types[fragment_typename]
+            proxy_typename = fragment_type.proxy_model.typename
+            fragment_gql = node_to_gql(node: child, type: fragment_type, context:, fragments:)
+            next "... on #{ proxy_typename } #{ fragment_gql }"
           end
 
           field = type.fields[child.name]
           next unless field
 
           is_proxy_field = field.is_a?(ProxyField)
+          next if is_proxy_field && !field.proxy
 
           field_name = is_proxy_field ? field.proxy_name : field.name
 
@@ -174,10 +225,15 @@ module NxtGqlClient
                         ""
                       end
 
+          children = if (!is_proxy_field || field.proxy_children)
+                       node_to_gql(node: child, type: Model.field_type(field), context:, fragments:)
+                     else
+                       nil
+                     end
           [
             field_name.camelize(:lower),
             arguments,
-            (!is_proxy_field || field.proxy_children) ? node_to_gql(node: child, type: Model.field_type(field), context:) : nil
+            children
           ].join
         end.compact
 
@@ -189,10 +245,6 @@ module NxtGqlClient
           %( { #{ fields.join("\n") } })
         end
       end
-    end
-
-    def self.field_type(field_class)
-      ::Array.wrap(field_class.type).first.unwrap
     end
   end
 end
