@@ -187,11 +187,7 @@ module NxtGqlClient
           if child.is_a?(GraphQL::Language::Nodes::FragmentSpread)
             fragment_definition = context.query.fragments[child.name]
             fragment_typename = fragment_definition.type.name
-            fragment_type = if fragment_typename == type.graphql_name
-                              type
-                            else
-                              type.resolve_type({ __typename: fragment_typename}, context)
-                            end
+            fragment_type = context.schema.types[fragment_typename]
 
             fragment = { name: child.name, type: fragment_type, proxy_typename: fragment_type.proxy_model.typename }
             fragments << fragment
