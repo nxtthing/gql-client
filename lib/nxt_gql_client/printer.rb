@@ -13,7 +13,18 @@ module NxtGqlClient
     private
 
     def print_variable_identifier(variable_identifier)
-      GraphQL::Language.serialize(@context.query.provided_variables[variable_identifier.name])
+      variable_name = variable_identifier.name
+      var = @context.query.instance_variable_get(:@ast_variables).find { |v| v.name == variable_name }
+      type = var.type
+      type = type.of_type while type.respond_to?(:of_type)
+      type_name = type.name
+      input_class = @context.warden.instance_variable_get(:@visible_types)[type_name]
+      value = @context.query.provided_variables[variable_name]
+      if input_class.respond_to?(:proxy_type)
+        value = input_class.coerce_input(value, @context)
+        value = input_class.proxy_type.coerce_result(value, @context)
+      end
+      GraphQL::Language.serialize(value)
     end
 
     def print_argument(argument)
