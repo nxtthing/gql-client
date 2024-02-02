@@ -1,5 +1,7 @@
 module NxtGqlClient
   class Query
+    ARRAY_ARGUMENTS_SEPARATOR = "_part_".freeze
+
     def initialize(query_definition:, api:, wrapper:, response_path: nil)
       @api = api
       @query_definition = query_definition
@@ -8,7 +10,7 @@ module NxtGqlClient
     end
 
     def call(context: {}, **vars)
-      variables = vars.transform_values { |v| deep_to_h(v) }.deep_transform_keys { |k| k.to_s.camelize(:lower) }
+      variables = deep_to_h(vars).deep_transform_keys { |k| k.to_s.camelize(:lower) }
       query_result = @api.client.query(@query_definition, variables:, context:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
@@ -39,7 +41,7 @@ module NxtGqlClient
     def deep_to_h(value)
       case value
       when GraphQL::Schema::InputObject, Hash
-        value.map { |k, v| [k, deep_to_h(v)] }.to_h
+        merge_array_arguments(value.to_h).transform_values { |v| deep_to_h(v) }
       when ::Array
         value.map { |v| deep_to_h(v) }
       when ::Time, ::Date
@@ -47,6 +49,16 @@ module NxtGqlClient
       else
         value
       end
+    end
+
+    def merge_array_arguments(args)
+      keys = args.keys
+      keys_to_merge, rest_keys = keys.partition { |k| k.to_s.include?(ARRAY_ARGUMENTS_SEPARATOR) }
+      grouped_keys_to_merge = keys_to_merge.group_by { |k| k.to_s.split(ARRAY_ARGUMENTS_SEPARATOR).first }
+      merged_args = grouped_keys_to_merge.to_a.each_with_object({}) do |(base_key, keys), result|
+        result[base_key] = args.slice(*keys).values
+      end
+      args.slice(*rest_keys).merge(merged_args)
     end
 
     def response_path
