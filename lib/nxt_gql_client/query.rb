@@ -15,7 +15,10 @@ module NxtGqlClient
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
       response = response_path.reduce(query_result) { |acc, k| acc[k] }
-      return response.map { |item| item.deep_transform_keys(&:underscore) } if response.is_a?(::Array)
+      if response.is_a?(::Array)
+        return response.map { |item| item.is_a?(::Hash) ? item.deep_transform_keys(&:underscore) : item }
+      end
+
       return response if response.is_a?(::TrueClass) or response.is_a?(::FalseClass)
 
       response && result(response.deep_transform_keys(&:underscore))
