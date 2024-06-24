@@ -24,13 +24,15 @@ module NxtGqlClient
         value = input_class.coerce_input(value, @context)
         value = input_class.proxy_type.coerce_result(value, @context)
       end
-      GraphQL::Language.serialize(value)
+      print_string(GraphQL::Language.serialize(value))
     end
 
     def print_argument(argument)
       field_argument = @field.arguments[argument.name]
       name = field_argument ? field_argument.keyword.to_s.camelize(:lower) : argument.name
-      "#{name}: #{print(argument.value)}"
+      print_string(argument.name)
+      print_string(": ")
+      print_node(argument.value)
     end
   end
 end
