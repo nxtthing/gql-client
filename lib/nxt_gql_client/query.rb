@@ -17,9 +17,7 @@ module NxtGqlClient
       response = response_meta[:path].reduce(query_result) { |acc, k| acc[k] }
       transformed_response = transform_response(
         response,
-        response_meta[:klass],
-        response_meta[:type],
-        response_meta[:selection]
+        response_meta[:klass]
       )
       result(transformed_response)
     end
@@ -27,7 +25,9 @@ module NxtGqlClient
     private
 
     def result(response)
-      if (response.keys - ["nodes", "total"]).empty?
+      if response.is_a?(::Array)
+        return response.map { |item| wrap(item) }
+      elsif (response.keys - ["nodes", "total"]).empty?
         ResultsPage.new(response) do |node_response|
           wrap(node_response)
         end
@@ -37,6 +37,8 @@ module NxtGqlClient
     end
 
     def wrap(response)
+      return response unless response.is_a?(::Hash)
+
       object = response.deep_symbolize_keys
       @wrapper.resolve_class(object).new(object)
     end
@@ -72,65 +74,37 @@ module NxtGqlClient
                            k2_class = k2_class.of_klass until k2_class.respond_to?(:defined_fields)
                            k2 = k2_class.defined_fields.keys.first
                            k3_class = k2_class.defined_fields[k2]
-                           k3_class = k3_class.of_klass while k3_class.respond_to?(:of_klass)
 
                            {
                              path: ["data", k1, k2],
                              klass: k3_class,
-                             type: k3_class.type,
-                             selection: @query_definition.document.definitions.first.selections.first.selections.first
                            }
                          end
     end
 
-    def transform_response(data, klass, type, selection)
-      case type.kind.name
-      when "INPUT_OBJECT"
-        raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
-      when "SCALAR"
+    def transform_response(data, klass)
+      case klass
+      in GraphQL::Client::Schema::ScalarType
         data
-      when "ENUM"
+      in GraphQL::Client::Schema::EnumType
         data
-      when "LIST"
-        data&.map { |row| transform_response(row, klass, type.of_type, selection) }
-      when "NON_NULL"
-        transform_response(data, klass, type.of_type, selection)
-      when "UNION"
-        raise NotImplementedError
-      when "INTERFACE"
+      in GraphQL::Client::Schema::ListType
+        data&.map { |row| transform_response(row, klass.of_klass) }
+      in GraphQL::Client::Schema::NonNullType
+        transform_response(data, klass.of_klass)
+      in GraphQL::Client::Schema::PossibleTypes
         typename = data["__typename"]
         k_klass = klass.possible_types[typename]
-        transform_response(data, k_klass, k_klass.type, selection)
-      when "OBJECT"
+        transform_response(data, k_klass)
+      in GraphQL::Client::Schema::ObjectType::WithDefinition
         return if data.nil?
 
         data.to_h do |k,v|
-          next [k.underscore, v] if k == "__typename"
-          k_selection = get_selection(k, selection)
-          k_klass = type.own_fields[k_selection.name]
-          [k.underscore, transform_response(v, k_klass, k_klass.type, k_selection)]
+          [k.underscore, transform_response(v, klass.defined_fields[k])]
         end
       else
         raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
       end
-    end
-
-    def get_selection(key, selection)
-      selection.selections.each do |sub_selection|
-        case sub_selection
-        in GraphQL::Language::Nodes::Field
-          return sub_selection if sub_selection.alias == key || sub_selection.name == key
-        in GraphQL::Language::Nodes::FragmentSpread
-          fragment = @query_definition.document.definitions.find do |doc|
-            doc.name == sub_selection.name
-          end
-          fragment_selection = get_selection(key, fragment)
-          return fragment_selection if fragment_selection
-        else
-          raise TypeError, "unexpected"
-        end
-      end
-      nil
     end
   end
 end
