@@ -14,20 +14,20 @@ module NxtGqlClient
       query_result = @api.client.query(@query_definition, variables:, context:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
-      response = response_path.reduce(query_result) { |acc, k| acc[k] }
-      if response.is_a?(::Array)
-        return response.map { |item| item.is_a?(::Hash) ? item.deep_transform_keys(&:underscore) : item }
-      end
-
-      return response if response.is_a?(::TrueClass) or response.is_a?(::FalseClass)
-
-      response && result(response.deep_transform_keys(&:underscore))
+      response = response_meta[:path].reduce(query_result) { |acc, k| acc[k] }
+      transformed_response = transform_response(
+        response,
+        response_meta[:klass]
+      )
+      result(transformed_response)
     end
 
     private
 
     def result(response)
-      if (response.keys - ["nodes", "total"]).empty?
+      if response.is_a?(::Array)
+        return response.map { |item| wrap(item) }
+      elsif (response.keys - ["nodes", "total"]).empty?
         ResultsPage.new(response) do |node_response|
           wrap(node_response)
         end
@@ -37,6 +37,8 @@ module NxtGqlClient
     end
 
     def wrap(response)
+      return response unless response.is_a?(::Hash)
+
       object = response.deep_symbolize_keys
       @wrapper.resolve_class(object).new(object)
     end
@@ -64,14 +66,45 @@ module NxtGqlClient
       args.slice(*rest_keys).merge(merged_args)
     end
 
-    def response_path
-      @response_path ||= begin
+    # TODO[SL]: unstable. suggest to require "payload" definition.
+    def response_meta
+      @response_meta ||= begin
                            k1 = @query_definition.schema_class.defined_fields.keys.first
                            k2_class = @query_definition.schema_class.defined_fields[k1]
                            k2_class = k2_class.of_klass until k2_class.respond_to?(:defined_fields)
                            k2 = k2_class.defined_fields.keys.first
-                           ["data", k1, k2]
+                           k3_class = k2_class.defined_fields[k2]
+
+                           {
+                             path: ["data", k1, k2],
+                             klass: k3_class,
+                           }
                          end
+    end
+
+    def transform_response(data, klass)
+      case klass
+      in GraphQL::Client::Schema::ScalarType
+        data
+      in GraphQL::Client::Schema::EnumType
+        data
+      in GraphQL::Client::Schema::ListType
+        data&.map { |row| transform_response(row, klass.of_klass) }
+      in GraphQL::Client::Schema::NonNullType
+        transform_response(data, klass.of_klass)
+      in GraphQL::Client::Schema::PossibleTypes
+        typename = data["__typename"]
+        k_klass = klass.possible_types[typename]
+        transform_response(data, k_klass)
+      in GraphQL::Client::Schema::ObjectType::WithDefinition
+        return if data.nil?
+
+        data.to_h do |k,v|
+          [k.underscore, transform_response(v, klass.defined_fields[k])]
+        end
+      else
+        raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
+      end
     end
   end
 end
