@@ -14,14 +14,14 @@ module NxtGqlClient
       query_result = @api.client.query(@query_definition, variables:, context:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
-      response = response_path.reduce(query_result) { |acc, k| acc[k] }
-      if response.is_a?(::Array)
-        return response.map { |item| item.is_a?(::Hash) ? item.deep_transform_keys(&:underscore) : item }
-      end
-
-      return response if response.is_a?(::TrueClass) or response.is_a?(::FalseClass)
-
-      response && result(response.deep_transform_keys(&:underscore))
+      response = response_meta[:path].reduce(query_result) { |acc, k| acc[k] }
+      transformed_response = transform_response(
+        response,
+        response_meta[:klass],
+        response_meta[:type],
+        response_meta[:selection]
+      )
+      result(transformed_response)
     end
 
     private
@@ -64,14 +64,73 @@ module NxtGqlClient
       args.slice(*rest_keys).merge(merged_args)
     end
 
-    def response_path
-      @response_path ||= begin
+    # TODO[SL]: unstable. suggest to require "payload" definition.
+    def response_meta
+      @response_meta ||= begin
                            k1 = @query_definition.schema_class.defined_fields.keys.first
                            k2_class = @query_definition.schema_class.defined_fields[k1]
                            k2_class = k2_class.of_klass until k2_class.respond_to?(:defined_fields)
                            k2 = k2_class.defined_fields.keys.first
-                           ["data", k1, k2]
+                           k3_class = k2_class.defined_fields[k2]
+                           k3_class = k3_class.of_klass while k3_class.respond_to?(:of_klass)
+
+                           {
+                             path: ["data", k1, k2],
+                             klass: k3_class,
+                             type: k3_class.type,
+                             selection: @query_definition.document.definitions.first.selections.first.selections.first
+                           }
                          end
+    end
+
+    def transform_response(data, klass, type, selection)
+      case type.kind.name
+      when "INPUT_OBJECT"
+        raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
+      when "SCALAR"
+        data
+      when "ENUM"
+        data
+      when "LIST"
+        data&.map { |row| transform_response(row, klass, type.of_type, selection) }
+      when "NON_NULL"
+        transform_response(data, klass, type.of_type, selection)
+      when "UNION"
+        raise NotImplementedError
+      when "INTERFACE"
+        typename = data["__typename"]
+        k_klass = klass.possible_types[typename]
+        transform_response(data, k_klass, k_klass.type, selection)
+      when "OBJECT"
+        return if data.nil?
+
+        data.to_h do |k,v|
+          next [k.underscore, v] if k == "__typename"
+          k_selection = get_selection(k, selection)
+          k_klass = type.own_fields[k_selection.name]
+          [k.underscore, transform_response(v, k_klass, k_klass.type, k_selection)]
+        end
+      else
+        raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
+      end
+    end
+
+    def get_selection(key, selection)
+      selection.selections.each do |sub_selection|
+        case sub_selection
+        in GraphQL::Language::Nodes::Field
+          return sub_selection if sub_selection.alias == key || sub_selection.name == key
+        in GraphQL::Language::Nodes::FragmentSpread
+          fragment = @query_definition.document.definitions.find do |doc|
+            doc.name == sub_selection.name
+          end
+          fragment_selection = get_selection(key, fragment)
+          return fragment_selection if fragment_selection
+        else
+          raise TypeError, "unexpected"
+        end
+      end
+      nil
     end
   end
 end
