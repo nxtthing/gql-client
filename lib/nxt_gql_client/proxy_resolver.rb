@@ -13,13 +13,19 @@ module NxtGqlClient
     end
 
     def resolve_proxy(**original_args)
-      proxy_model.send(proxy_query_name, resolver: self, **proxy_args(original_args), context:)
+      proxy_model.send(proxy_query_name, resolver: self, **proxy_args(original_args), context: proxy_context(context))
     rescue InvalidResponse => exc
       handle_invalid_response_error(exc)
     end
 
     def proxy_args(original_args)
-      original_args
+      @arguments_by_keyword.
+        select { |_, argument| argument.proxy }.
+        to_h { |key, argument| [argument.proxy_name, argument.proxy_value(original_args[key])] }
+    end
+
+    def proxy_context(_context)
+      GraphQL::Query::NullContext.instance
     end
 
     def proxy_query_name
