@@ -10,8 +10,8 @@ module NxtGqlClient
     end
 
     def call(context: {}, **vars)
-      variables = deep_to_h(vars).deep_transform_keys { |k| k.to_s.camelize(:lower) }
-      query_result = @api.client.query(@query_definition, variables:, context:).to_h
+      transformed_variables = transform_variables(vars, context)
+      query_result = @api.client.query(@query_definition, variables: transformed_variables, context:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
       response = response_meta[:path].reduce(query_result) { |acc, k| acc[k] }
@@ -43,29 +43,6 @@ module NxtGqlClient
       @wrapper.resolve_class(object).new(object)
     end
 
-    def deep_to_h(value)
-      case value
-      when GraphQL::Schema::InputObject, Hash
-        merge_array_arguments(value.to_h).transform_values { |v| deep_to_h(v) }
-      when ::Array
-        value.map { |v| deep_to_h(v) }
-      when ::Time, ::Date
-        value.iso8601
-      else
-        value
-      end
-    end
-
-    def merge_array_arguments(args)
-      keys = args.keys
-      keys_to_merge, rest_keys = keys.partition { |k| k.to_s.include?(ARRAY_ARGUMENTS_SEPARATOR) }
-      grouped_keys_to_merge = keys_to_merge.group_by { |k| k.to_s.split(ARRAY_ARGUMENTS_SEPARATOR).first }
-      merged_args = grouped_keys_to_merge.to_a.each_with_object({}) do |(base_key, keys), result|
-        result[base_key] = args.slice(*keys).values
-      end
-      args.slice(*rest_keys).merge(merged_args)
-    end
-
     # TODO[SL]: unstable. suggest to require "payload" definition.
     def response_meta
       @response_meta ||= begin
@@ -80,6 +57,62 @@ module NxtGqlClient
                              klass: k3_class,
                            }
                          end
+    end
+
+    def transform_variables(data, context)
+      @query_definition.definition_node.variables.to_h do |klass|
+        name = klass.name
+        key = name.underscore.to_sym
+        [name, transform_variable(data[key], klass.type, context)]
+      end
+    end
+
+    def transform_variable(data, type, context)
+      case type
+      in GraphQL::Language::Nodes::NonNullType
+        transform_variable(data, type.of_type, context)
+      in GraphQL::Language::Nodes::TypeName
+        transform_argument(data, @api.client.schema.types[type.name], context)
+      else
+        raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+      end
+    end
+
+    def transform_argument(data, type, context)
+      return if data.nil?
+
+      case type.kind.name
+      when "INPUT_OBJECT"
+        type.own_arguments.to_h do |name, argument_klass|
+          if partitioned_argument_keys(name, data).any?
+            [name, merge_partitioned_argument(name, data)]
+          else
+            key = name.underscore.to_sym
+            [name, transform_argument(data[key], argument_klass.type, context)]
+          end
+        end
+      when "NON_NULL"
+        transform_argument(data, type.of_type, context)
+      when "LIST"
+        data.map { |row| transform_argument(row, type.of_type, context) }
+      when "ENUM"
+        data
+      when "SCALAR"
+        "GraphQL::Types::#{type.graphql_name}".constantize.coerce_result(data, context)
+      else
+        raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+      end
+    end
+
+    def partitioned_argument_keys(name, data)
+      sub_key = name.underscore + ARRAY_ARGUMENTS_SEPARATOR
+      data.keys.map(&:to_s).select { |dk| dk.starts_with?(sub_key) }
+    end
+
+    def merge_partitioned_argument(name, data)
+      partitioned_keys = partitioned_argument_keys(name, data)
+      result = data.to_h.slice(*partitioned_keys).values
+      result.any? ? result : nil
     end
 
     def transform_response(data, klass)
