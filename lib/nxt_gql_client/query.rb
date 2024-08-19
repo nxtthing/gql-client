@@ -1,7 +1,5 @@
 module NxtGqlClient
   class Query
-    ARRAY_ARGUMENTS_SEPARATOR = "_part_".freeze
-
     def initialize(query_definition:, api:, wrapper:, response_path: nil)
       @api = api
       @query_definition = query_definition
@@ -9,10 +7,12 @@ module NxtGqlClient
       @wrapper = wrapper
     end
 
-    def call(context: {}, **vars)
-      transformed_variables = transform_variables(vars, context)
+    def call(context: {}, **variables)
+      transformed_variables = transform_variables(variables)
       query_result = @api.client.query(@query_definition, variables: transformed_variables, context:).to_h
-      raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
+      if query_result.key?("errors")
+        raise InvalidResponse.new(query_result["errors"].first["message"], query_result)
+      end
 
       response = response_meta[:path].reduce(query_result) { |acc, k| acc[k] }
       transformed_response = transform_response(
@@ -59,84 +59,68 @@ module NxtGqlClient
                          end
     end
 
-    def transform_variables(data, context)
-      @query_definition.definition_node.variables.to_h do |klass|
-        name = klass.name
-        key = name.underscore.to_sym
-        [name, transform_variable(data[key], klass.type, context)]
-      end
+    def transform_variables(data)
+      @query_definition.definition_node.variables.
+        select { |klass| data.key?(klass.name.underscore.to_sym) }.
+        to_h { |klass| [klass.name, transform_variable(data[klass.name.underscore.to_sym], klass.type)] }
     end
 
-    def transform_variable(data, type, context)
+    def transform_variable(data, type)
+      return if data.nil?
+
       case type
-      in GraphQL::Language::Nodes::NonNullType
-        transform_variable(data, type.of_type, context)
-      in GraphQL::Language::Nodes::TypeName
-        transform_argument(data, @api.client.schema.types[type.name], context)
-      else
-        raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+        in GraphQL::Language::Nodes::NonNullType
+          transform_variable(data, type.of_type)
+        in GraphQL::Language::Nodes::TypeName
+          transform_argument(data, @api.client.schema.types[type.name])
+        in GraphQL::Language::Nodes::ListType
+          data.map { |row| transform_variable(row, type.of_type) }
+        else
+          raise TypeError, "unexpected #{type.class} (#{type.inspect})"
       end
     end
 
-    def transform_argument(data, type, context)
+    def transform_argument(data, type)
       return if data.nil?
 
       case type.kind.name
-      when "INPUT_OBJECT"
-        type.own_arguments.to_h do |name, argument_klass|
-          if partitioned_argument_keys(name, data).any?
-            [name, merge_partitioned_argument(name, data)]
-          else
-            key = name.underscore.to_sym
-            [name, transform_argument(data[key], argument_klass.type, context)]
-          end
-        end
-      when "NON_NULL"
-        transform_argument(data, type.of_type, context)
-      when "LIST"
-        data.map { |row| transform_argument(row, type.of_type, context) }
-      when "ENUM"
-        data
-      when "SCALAR"
-        "GraphQL::Types::#{type.graphql_name}".constantize.coerce_result(data, context)
-      else
-        raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+        when "INPUT_OBJECT"
+          type.own_arguments.
+            select { |name, klass| data.key?(name.underscore.to_sym) }.
+            to_h { |name, klass| [name, transform_argument(data[name.underscore.to_sym], klass.type)] }
+        when "NON_NULL"
+          transform_argument(data, type.of_type)
+        when "LIST"
+          data.map { |row| transform_argument(row, type.of_type) }
+        when "ENUM", "SCALAR"
+          data
+        else
+          raise TypeError, "unexpected #{type.class} (#{type.inspect})"
       end
-    end
+  end
 
-    def partitioned_argument_keys(name, data)
-      sub_key = name.underscore + ARRAY_ARGUMENTS_SEPARATOR
-      data.keys.map(&:to_s).select { |dk| dk.starts_with?(sub_key) }
-    end
-
-    def merge_partitioned_argument(name, data)
-      partitioned_keys = partitioned_argument_keys(name, data)
-      result = data.to_h.slice(*partitioned_keys).values
-      result.any? ? result : nil
-    end
-
-    def transform_response(data, klass)
+  def transform_response(data, klass)
       case klass
-      in GraphQL::Client::Schema::ScalarType
-        data
-      in GraphQL::Client::Schema::EnumType
-        data
-      in GraphQL::Client::Schema::ListType
-        data&.map { |row| transform_response(row, klass.of_klass) }
-      in GraphQL::Client::Schema::NonNullType
-        transform_response(data, klass.of_klass)
-      in GraphQL::Client::Schema::PossibleTypes
-        typename = data["__typename"]
-        k_klass = klass.possible_types[typename]
-        transform_response(data, k_klass)
-      in GraphQL::Client::Schema::ObjectType::WithDefinition
-        return if data.nil?
+        in GraphQL::Client::Schema::ScalarType
+          data
+        in GraphQL::Client::Schema::EnumType
+          data
+        in GraphQL::Client::Schema::ListType
+          data&.map { |row| transform_response(row, klass.of_klass) }
+        in GraphQL::Client::Schema::NonNullType
+          transform_response(data, klass.of_klass)
+        in GraphQL::Client::Schema::PossibleTypes
+          typename = data["__typename"]
+          k_klass = klass.possible_types[typename]
+          transform_response(data, k_klass)
+        in GraphQL::Client::Schema::ObjectType::WithDefinition
+          return if data.nil?
 
-        data.to_h do |k,v|
-          [k.underscore, transform_response(v, klass.defined_fields[k])]
-        end
-      else
-        raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
+          data.to_h do |k,v|
+            [k.underscore, transform_response(v, klass.defined_fields[k])]
+          end
+        else
+          raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
       end
     end
   end

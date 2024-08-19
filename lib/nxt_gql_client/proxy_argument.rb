@@ -3,7 +3,7 @@ module NxtGqlClient
     extend ActiveSupport::Concern
 
     included do
-      attr_reader :proxy
+      attr_reader :proxy, :proxy_alias
 
       class_eval do
         def initialize(*args, proxy: true, proxy_alias: nil, **kwargs, &block)
@@ -14,21 +14,23 @@ module NxtGqlClient
       end
 
       def proxy_name
-        @proxy_alias || name
+        @proxy_alias || keyword
       end
 
-      def proxy_value(value)
+      def proxy_value(value, type: self.type)
+        return value if prepare.present?
         return if value.nil?
 
         case type.kind.name
           when "INPUT_OBJECT"
-            type.arguments.
-              select { |_, v| v.respond_to?(:proxy) && v.proxy }.
-              to_h do |name, argument_klass|
-              key = name.underscore.to_sym
-              [argument_klass.proxy_name, argument_klass.proxy_value(value[key])]
-            end
-          when "ENUM", "SCALAR"
+            type.proxy_value(value)
+          when "NON_NULL"
+            proxy_value(value, type: type.of_type)
+          when "LIST"
+            value.map { |row| proxy_value(row, type: type.of_type) }
+          when "ENUM"
+            value
+          when "SCALAR"
             format_value(value)
           else
             raise TypeError, "unexpected #{type.class} (#{type.inspect})"
