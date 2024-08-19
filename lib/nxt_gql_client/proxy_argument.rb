@@ -23,7 +23,9 @@ module NxtGqlClient
 
         case type.kind.name
           when "INPUT_OBJECT"
-            type.proxy_value(value)
+            type.include?(NxtGqlClient::ProxyInputObject) ?
+              type.proxy_arguments(value) :
+              value
           when "NON_NULL"
             proxy_value(value, type: type.of_type)
           when "LIST"

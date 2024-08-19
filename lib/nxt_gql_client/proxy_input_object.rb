@@ -3,18 +3,19 @@ module NxtGqlClient
     extend ActiveSupport::Concern
 
     class_methods do
-      def proxy_value(value)
+      def proxy_arguments(value)
         return if value.nil?
+        return value unless argument_class.include?(NxtGqlClient::ProxyArgument)
 
-        arguments.
-          select { |_, v| v.respond_to?(:proxy) && v.proxy }.
-          select { |name, _| value.key?(name.underscore.to_sym) }.
-          to_h { |name, klass| [klass.proxy_name, klass.proxy_value(value[name.underscore.to_sym])] }
+        arguments.values.
+          select(&:proxy).
+          select { |arg_klass| value.key?(arg_klass.keyword) }.
+          to_h { |arg_klass| [arg_klass.proxy_name, arg_klass.proxy_value(value[arg_klass.keyword])] }
       end
     end
 
-    def proxy_value
-      self.class.proxy_value(self)
+    def proxy_arguments
+      self.class.proxy_arguments(self)
     end
   end
 end
