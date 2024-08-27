@@ -1,7 +1,5 @@
 module NxtGqlClient
   class Query
-    ARRAY_ARGUMENTS_SEPARATOR = "_part_".freeze
-
     def initialize(query_definition:, api:, wrapper:, response_path: nil)
       @api = api
       @query_definition = query_definition
@@ -9,9 +7,9 @@ module NxtGqlClient
       @wrapper = wrapper
     end
 
-    def call(context: {}, **vars)
-      variables = deep_to_h(vars).deep_transform_keys { |k| k.to_s.camelize(:lower) }
-      query_result = @api.client.query(@query_definition, variables:, context:).to_h
+    def call(context: {}, **variables)
+      transformed_variables = transform_variables(variables)
+      query_result = @api.client.query(@query_definition, variables: transformed_variables, context:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")
 
       response = response_meta[:path].reduce(query_result) { |acc, k| acc[k] }
@@ -43,29 +41,6 @@ module NxtGqlClient
       @wrapper.resolve_class(object).new(object)
     end
 
-    def deep_to_h(value)
-      case value
-      when GraphQL::Schema::InputObject, Hash
-        merge_array_arguments(value.to_h).transform_values { |v| deep_to_h(v) }
-      when ::Array
-        value.map { |v| deep_to_h(v) }
-      when ::Time, ::Date
-        value.iso8601
-      else
-        value
-      end
-    end
-
-    def merge_array_arguments(args)
-      keys = args.keys
-      keys_to_merge, rest_keys = keys.partition { |k| k.to_s.include?(ARRAY_ARGUMENTS_SEPARATOR) }
-      grouped_keys_to_merge = keys_to_merge.group_by { |k| k.to_s.split(ARRAY_ARGUMENTS_SEPARATOR).first }
-      merged_args = grouped_keys_to_merge.to_a.each_with_object({}) do |(base_key, keys), result|
-        result[base_key] = args.slice(*keys).values
-      end
-      args.slice(*rest_keys).merge(merged_args)
-    end
-
     # TODO[SL]: unstable. suggest to require "payload" definition.
     def response_meta
       @response_meta ||= begin
@@ -82,28 +57,68 @@ module NxtGqlClient
                          end
     end
 
-    def transform_response(data, klass)
-      case klass
-      in GraphQL::Client::Schema::ScalarType
-        data
-      in GraphQL::Client::Schema::EnumType
-        data
-      in GraphQL::Client::Schema::ListType
-        data&.map { |row| transform_response(row, klass.of_klass) }
-      in GraphQL::Client::Schema::NonNullType
-        transform_response(data, klass.of_klass)
-      in GraphQL::Client::Schema::PossibleTypes
-        typename = data["__typename"]
-        k_klass = klass.possible_types[typename]
-        transform_response(data, k_klass)
-      in GraphQL::Client::Schema::ObjectType::WithDefinition
-        return if data.nil?
+    def transform_variables(data)
+      @query_definition.definition_node.variables.
+        select { |klass| data.key?(klass.name.underscore.to_sym) }.
+        to_h { |klass| [klass.name, transform_variable(data[klass.name.underscore.to_sym], klass.type)] }
+    end
 
-        data.to_h do |k,v|
-          [k.underscore, transform_response(v, klass.defined_fields[k])]
-        end
-      else
-        raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
+    def transform_variable(data, type)
+      return if data.nil?
+
+      case type
+        in GraphQL::Language::Nodes::NonNullType
+          transform_variable(data, type.of_type)
+        in GraphQL::Language::Nodes::TypeName
+          transform_argument(data, @api.client.schema.types[type.name])
+        in GraphQL::Language::Nodes::ListType
+          data.map { |row| transform_variable(row, type.of_type) }
+        else
+          raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+      end
+    end
+
+    def transform_argument(data, type)
+      return if data.nil?
+
+      case type.kind.name
+        when "INPUT_OBJECT"
+          type.own_arguments.
+            select { |name, klass| data.key?(name.underscore.to_sym) }.
+            to_h { |name, klass| [name, transform_argument(data[name.underscore.to_sym], klass.type)] }
+        when "NON_NULL"
+          transform_argument(data, type.of_type)
+        when "LIST"
+          data.map { |row| transform_argument(row, type.of_type) }
+        when "ENUM", "SCALAR"
+          data
+        else
+          raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+      end
+  end
+
+  def transform_response(data, klass)
+      case klass
+        in GraphQL::Client::Schema::ScalarType
+          data
+        in GraphQL::Client::Schema::EnumType
+          data
+        in GraphQL::Client::Schema::ListType
+          data&.map { |row| transform_response(row, klass.of_klass) }
+        in GraphQL::Client::Schema::NonNullType
+          transform_response(data, klass.of_klass)
+        in GraphQL::Client::Schema::PossibleTypes
+          typename = data["__typename"]
+          k_klass = klass.possible_types[typename]
+          transform_response(data, k_klass)
+        in GraphQL::Client::Schema::ObjectType::WithDefinition
+          return if data.nil?
+
+          data.to_h do |k,v|
+            [k.underscore, transform_response(v, klass.defined_fields[k])]
+          end
+        else
+          raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
       end
     end
   end
