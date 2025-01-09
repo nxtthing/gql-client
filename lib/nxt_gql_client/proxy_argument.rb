@@ -1,3 +1,5 @@
+require "nxt_gql_client/proxy_input_object"
+
 module NxtGqlClient
   module ProxyArgument
     extend ActiveSupport::Concern

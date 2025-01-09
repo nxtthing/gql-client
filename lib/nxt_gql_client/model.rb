@@ -167,18 +167,24 @@ module NxtGqlClient
       end
 
       def resolver_to_node(resolver)
+        object_name = resolver.object.field.name
+        field_name = resolver.field.name
         resolver.context.query.document.definitions.each do |definition|
           definition.selections.each do |selection|
-            node = selection.
+            selection_object = selection if selection.name == object_name
+            selection_object ||= selection.
               children.
-              find { |child| child.name == resolver.object.field.name }.
-              children.
-              find { |child| child.name == resolver.field.name }
-            return node if node
-
-            node
+              find { |child| child.name == object_name }
+            if selection_object
+              node = selection_object.
+                children.
+                find { |child| child.name == field_name }
+              return node if node
+            end
           end
         end
+
+        raise "no definition for #{object_name}.#{field_name} resolver"
       end
 
       def node_to_gql(node:, type:, context:, fragments:)
