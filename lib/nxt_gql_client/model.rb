@@ -14,13 +14,102 @@ module NxtGqlClient
       delegate :[], to: :object
     end
 
-
     def initialize(object)
       @object = object
     end
 
-    def self.field_type(field_class)
-      ::Array.wrap(field_class.type).first.unwrap
+    class << self
+      def field_type(field_class)
+        ::Array.wrap(field_class.type).first.unwrap
+      end
+
+      def dynamic_query_params(node:, result_class:, context:)
+        fragments = {}
+        response_gql = node_to_gql(
+          node:,
+          type: field_type(result_class),
+          context:,
+          fragments:
+        )
+
+        {
+          response_gql:,
+          fragments:
+        }
+      end
+
+      private
+
+      def node_to_gql(node:, type:, context:, fragments:)
+        return unless type.respond_to?(:fields)
+
+        fields = node.children.map do |child|
+          next if child.is_a?(GraphQL::Language::Nodes::InputObject)
+
+          if child.is_a?(GraphQL::Language::Nodes::FragmentSpread)
+            name = child.name
+            unless fragments[name]
+              fragment_definition = context.query.fragments[name]
+              fragment_typename = fragment_definition.type.name
+              fragment_type = context.schema.types[fragment_typename]
+
+              proxy_typename = fragment_type.respond_to?(:proxy_model) ? fragment_type.proxy_model.typename : fragment_typename
+
+              fragment = { name: child.name, type: fragment_type, proxy_typename: }
+              fragments[name] = fragment
+              fragment[:gql] = node_to_gql(
+                node: fragment_definition,
+                type: fragment_type,
+                context:,
+                fragments:
+              )
+            end
+
+            next "...#{name}"
+          end
+
+          if child.is_a?(GraphQL::Language::Nodes::InlineFragment)
+            fragment_typename = child.type.name
+            fragment_type = context.schema.types[fragment_typename]
+            proxy_typename = fragment_type.proxy_model.typename
+            fragment_gql = node_to_gql(node: child, type: fragment_type, context:, fragments:)
+            next "... on #{ proxy_typename } #{ fragment_gql }"
+          end
+
+          field = type.fields[child.name]
+          next unless field
+
+          is_proxy_field = field.is_a?(ProxyField)
+          next if is_proxy_field && !field.proxy
+
+          field_name = is_proxy_field ? field.proxy_name : field.name
+
+          arguments = if is_proxy_field && field.proxy_attrs && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
+                        Printer.new(context:, field:).print_args(child.arguments)
+                      else
+                        ""
+                      end
+
+          children = if !is_proxy_field || field.proxy_children
+                       node_to_gql(node: child, type: Model.field_type(field), context:, fragments:)
+                     else
+                       nil
+                     end
+          [
+            field_name.camelize(:lower),
+            arguments,
+            children
+          ].join
+        end.compact
+
+        return if fields.empty?
+
+        if node.is_a?(GraphQL::Language::Nodes::FragmentDefinition)
+          %( #{ fields.join("\n") } )
+        else
+          %( { #{ fields.join("\n") } })
+        end
+      end
     end
 
     private
@@ -32,18 +121,10 @@ module NxtGqlClient
 
     class_methods do
       def query(name, gql = nil, response_path = nil)
-        define_singleton_method name do |resolver: nil, response_gql: nil, **args|
+        define_singleton_method name do |response_gql:, fragments: {}, **args|
           return if !api.active? && !::Rails.env.production?
 
           definition = if block_given?
-                         fragments = {}
-                         response_gql ||= resolver && node_to_gql(
-                           node: resolver_to_node(resolver),
-                           type: Model.field_type(resolver.class),
-                           context: resolver.context,
-                           fragments:
-                         )
-
                          gql = [
                            yield(response_gql),
                            fragments.values.map do |fragment|
@@ -164,98 +245,6 @@ module NxtGqlClient
       def parse_query(query:, response_path:)
         definition = api.client.parse(query)
         Query.new(query_definition: definition, api:, response_path:, wrapper: self)
-      end
-
-      def resolver_to_node(resolver)
-        object_name = resolver.object.field.name
-        field_name = resolver.field.name
-        resolver.context.query.document.definitions.each do |definition|
-          definition.selections.each do |selection|
-            selection_object = selection if selection.name == object_name
-            selection_object ||= selection.
-              children.
-              find { |child| child.name == object_name }
-            if selection_object
-              node = selection_object.
-                children.
-                find { |child| child.name == field_name }
-              return node if node
-            end
-          end
-        end
-
-        raise "no definition for #{object_name}.#{field_name} resolver"
-      end
-
-      def node_to_gql(node:, type:, context:, fragments:)
-        return unless type.respond_to?(:fields)
-
-        fields = node.children.map do |child|
-          next if child.is_a?(GraphQL::Language::Nodes::InputObject)
-
-          if child.is_a?(GraphQL::Language::Nodes::FragmentSpread)
-            name = child.name
-            unless fragments[name]
-              fragment_definition = context.query.fragments[name]
-              fragment_typename = fragment_definition.type.name
-              fragment_type = context.schema.types[fragment_typename]
-
-              proxy_typename = fragment_type.respond_to?(:proxy_model) ? fragment_type.proxy_model.typename : fragment_typename
-
-              fragment = { name: child.name, type: fragment_type, proxy_typename: }
-              fragments[name] = fragment
-              fragment[:gql] = node_to_gql(
-                node: fragment_definition,
-                type: fragment_type,
-                context:,
-                fragments:
-              )
-            end
-
-            next "...#{name}"
-          end
-
-          if child.is_a?(GraphQL::Language::Nodes::InlineFragment)
-            fragment_typename = child.type.name
-            fragment_type = context.schema.types[fragment_typename]
-            proxy_typename = fragment_type.proxy_model.typename
-            fragment_gql = node_to_gql(node: child, type: fragment_type, context:, fragments:)
-            next "... on #{ proxy_typename } #{ fragment_gql }"
-          end
-
-          field = type.fields[child.name]
-          next unless field
-
-          is_proxy_field = field.is_a?(ProxyField)
-          next if is_proxy_field && !field.proxy
-
-          field_name = is_proxy_field ? field.proxy_name : field.name
-
-          arguments = if is_proxy_field && field.proxy_attrs && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
-                        Printer.new(context:, field:).print_args(child.arguments)
-                      else
-                        ""
-                      end
-
-          children = if !is_proxy_field || field.proxy_children
-                       node_to_gql(node: child, type: Model.field_type(field), context:, fragments:)
-                     else
-                       nil
-                     end
-          [
-            field_name.camelize(:lower),
-            arguments,
-            children
-          ].join
-        end.compact
-
-        return if fields.empty?
-
-        if node.is_a?(GraphQL::Language::Nodes::FragmentDefinition)
-          %( #{ fields.join("\n") } )
-        else
-          %( { #{ fields.join("\n") } })
-        end
       end
     end
   end

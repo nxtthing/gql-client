@@ -17,7 +17,11 @@ module NxtGqlClient
     def resolve_proxy(**)
       proxy_model.send(
         proxy_query_name,
-        resolver: self,
+        **Model.dynamic_query_params(
+          node: to_node,
+          result_class: self.class,
+          context:
+        ),
         **proxy_arguments,
         context: proxy_context
       )
@@ -51,6 +55,29 @@ module NxtGqlClient
 
     def handle_invalid_response_error(exc)
       raise exc
+    end
+
+    private
+
+    def to_node
+      object_name = object.field.name
+      field_name = field.name
+      context.query.document.definitions.each do |definition|
+        definition.selections.each do |selection|
+          selection_object = selection if selection.name == object_name
+          selection_object ||= selection.
+            children.
+            find { |child| child.name == object_name }
+          if selection_object
+            node = selection_object.
+              children.
+              find { |child| child.name == field_name }
+            return node if node
+          end
+        end
+      end
+
+      raise "no definition for #{object_name}.#{field_name} resolver"
     end
   end
 end

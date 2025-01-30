@@ -82,43 +82,43 @@ module NxtGqlClient
       return if data.nil?
 
       case type.kind.name
-        when "INPUT_OBJECT"
-          type.own_arguments.
-            select { |name, klass| data.key?(name.underscore.to_sym) }.
-            to_h { |name, klass| [name, transform_argument(data[name.underscore.to_sym], klass.type)] }
-        when "NON_NULL"
-          transform_argument(data, type.of_type)
-        when "LIST"
-          data.map { |row| transform_argument(row, type.of_type) }
-        when "ENUM", "SCALAR"
-          data
-        else
-          raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+      when "INPUT_OBJECT"
+        type.own_arguments.
+          select { |name, klass| data.key?(name.underscore.to_sym) }.
+          to_h { |name, klass| [name, transform_argument(data[name.underscore.to_sym], klass.type)] }
+      when "NON_NULL"
+        transform_argument(data, type.of_type)
+      when "LIST"
+        data.map { |row| transform_argument(row, type.of_type) }
+      when "ENUM", "SCALAR"
+        data
+      else
+        raise TypeError, "unexpected #{type.class} (#{type.inspect})"
       end
-  end
+    end
 
-  def transform_response(data, klass)
+    def transform_response(data, klass)
       case klass
-        in GraphQL::Client::Schema::ScalarType
-          data
-        in GraphQL::Client::Schema::EnumType
-          data
-        in GraphQL::Client::Schema::ListType
-          data&.map { |row| transform_response(row, klass.of_klass) }
-        in GraphQL::Client::Schema::NonNullType
-          transform_response(data, klass.of_klass)
-        in GraphQL::Client::Schema::PossibleTypes
-          typename = data["__typename"]
-          k_klass = klass.possible_types[typename]
-          transform_response(data, k_klass)
-        in GraphQL::Client::Schema::ObjectType::WithDefinition
-          return if data.nil?
+      in GraphQL::Client::Schema::ScalarType
+        data
+      in GraphQL::Client::Schema::EnumType
+        data
+      in GraphQL::Client::Schema::ListType
+        data&.map { |row| transform_response(row, klass.of_klass) }
+      in GraphQL::Client::Schema::NonNullType
+        transform_response(data, klass.of_klass)
+      in GraphQL::Client::Schema::PossibleTypes
+        typename = data["__typename"]
+        k_klass = klass.possible_types[typename]
+        transform_response(data, k_klass)
+      in GraphQL::Client::Schema::ObjectType::WithDefinition
+        return if data.nil?
 
-          data.to_h do |k,v|
-            [k.underscore, transform_response(v, klass.defined_fields[k])]
-          end
-        else
-          raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
+        data.to_h do |k,v|
+          [k.underscore, transform_response(v, klass.defined_fields[k])]
+        end
+      else
+        raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
       end
     end
   end
