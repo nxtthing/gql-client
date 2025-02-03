@@ -121,7 +121,7 @@ module NxtGqlClient
 
     class_methods do
       def query(name, gql = nil, response_path = nil)
-        define_singleton_method name do |response_gql:, fragments: {}, **args|
+        define_singleton_method name do |response_gql: nil, fragments: {}, **args|
           return if !api.active? && !::Rails.env.production?
 
           definition = if block_given?
