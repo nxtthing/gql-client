@@ -15,14 +15,14 @@ module NxtGqlClient
     end
 
     def resolve_proxy(**)
-      proxy_model.send(
+      proxy_model.public_send(
         proxy_query_name,
         **Model.dynamic_query_params(
           node: to_node,
           result_class: self.class,
           context:
         ),
-        **proxy_arguments,
+        variables: proxy_arguments,
         context: proxy_context
       )
     rescue InvalidResponse => exc
