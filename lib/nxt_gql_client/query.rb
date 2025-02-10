@@ -7,7 +7,7 @@ module NxtGqlClient
       @wrapper = wrapper
     end
 
-    def call(context: {}, **variables)
+    def call(context: {}, variables: {})
       transformed_variables = transform_variables(variables)
       query_result = @api.client.query(@query_definition, variables: transformed_variables, context:).to_h
       raise InvalidResponse.new(query_result["errors"].first["message"], query_result) if query_result.key?("errors")

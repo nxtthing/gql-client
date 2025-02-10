@@ -121,7 +121,7 @@ module NxtGqlClient
 
     class_methods do
       def query(name, gql = nil, response_path = nil)
-        define_singleton_method name do |response_gql: nil, fragments: {}, **args|
+        define_singleton_method name do |response_gql: nil, fragments: {}, context: {}, variables: {}|
           return if !api.active? && !::Rails.env.production?
 
           definition = if block_given?
@@ -144,7 +144,7 @@ module NxtGqlClient
                            instance_variable_set(var_name, parse_query(query: gql, response_path:))
                          end
                        end
-          definition.call(**args)
+          definition.call(context:, variables:)
         end
 
         if async?
