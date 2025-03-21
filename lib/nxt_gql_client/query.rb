@@ -108,6 +108,7 @@ module NxtGqlClient
       in GraphQL::Client::Schema::NonNullType
         transform_response(data, klass.of_klass)
       in GraphQL::Client::Schema::PossibleTypes
+        return if data.nil?
         typename = data["__typename"]
         k_klass = klass.possible_types[typename]
         transform_response(data, k_klass)
