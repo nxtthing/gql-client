@@ -76,8 +76,6 @@ module NxtGqlClient
             next "... on #{ proxy_typename } #{ fragment_gql }"
           end
 
-          next "__typename" if child.name == "__typename"
-
           field = type.fields[child.name]
           next unless field
 
