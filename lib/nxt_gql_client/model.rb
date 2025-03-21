@@ -104,6 +104,10 @@ module NxtGqlClient
           ].join
         end.compact
 
+        if type.include?(GraphQL::Schema::Interface) && !type.ancestors.include?(GraphQL::Schema::Object)
+          fields.push("__typename").uniq!
+        end
+
         return if fields.empty?
 
         if node.is_a?(GraphQL::Language::Nodes::FragmentDefinition)
