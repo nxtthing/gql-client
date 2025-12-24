@@ -96,7 +96,7 @@ module NxtGqlClient
                        nil
                      end
           [
-            field_name.camelize(:lower),
+            field_name == "_view" ? field_name : field_name.camelize(:lower),
             arguments,
             children
           ].join
