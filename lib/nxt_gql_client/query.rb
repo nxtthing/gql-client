@@ -25,7 +25,7 @@ module NxtGqlClient
     def result(response)
       if response.is_a?(::Array)
         response.map { |item| wrap(item) }
-      elsif response.is_a?(::Hash) && (response.keys - %w[nodes total]).empty?
+      elsif response.is_a?(::Hash) && (response.keys - %w[nodes total _view]).empty?
         ResultsPage.new(response) do |node_response|
           wrap(node_response)
         end
