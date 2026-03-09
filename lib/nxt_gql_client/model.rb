@@ -154,7 +154,7 @@ module NxtGqlClient
         if async?
           require "nxt_gql_client/async_query_job"
           define_singleton_method "#{name}_later" do |**variables|
-            AsyncQueryJob.perform_later(
+            AsyncQueryJob.set(queue: async_queue).perform_later(
               ".#{Object.const_source_location(self.name)[0].remove(::Rails.root.to_s)}",
               self.name,
               name,
@@ -216,6 +216,11 @@ module NxtGqlClient
             define_singleton_method :async? do
               true
             end
+            if async.is_a?(::Hash) && async[:queue]
+              define_singleton_method :async_queue do
+                async[:queue]
+              end
+            end
           end
         else
           api.url
@@ -240,6 +245,10 @@ module NxtGqlClient
 
       def async?
         false
+      end
+
+      def async_queue
+        :default
       end
 
       def api
