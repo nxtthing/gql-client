@@ -1,9 +1,9 @@
 module NxtGqlClient
   class Query
-    def initialize(query_definition:, api:, wrapper:, response_path: nil)
+    def initialize(query_definition:, api:, wrapper:, name:)
       @api = api
       @query_definition = query_definition
-      @response_path = response_path
+      @name = name.to_s
       @wrapper = wrapper
     end
 
@@ -44,15 +44,25 @@ module NxtGqlClient
     # TODO[SL]: unstable. suggest to require "payload" definition.
     def response_meta
       @response_meta ||= begin
-                           k1 = @query_definition.schema_class.defined_fields.keys.first
-                           k2_class = @query_definition.schema_class.defined_fields[k1]
-                           k2_class = k2_class.of_klass until k2_class.respond_to?(:defined_fields)
-                           k2 = k2_class.defined_fields.keys.first
-                           k3_class = k2_class.defined_fields[k2]
+                           klass = @query_definition.schema_class
+                           path = ["data"]
+
+                           deepness = 0
+
+                           loop do
+                             klass = klass.of_klass until klass.respond_to?(:defined_fields)
+                             key = klass.defined_fields.keys.first
+                             path << key
+                             klass = klass.defined_fields[key]
+                             break if key == @name
+
+                             deepness += 1
+                             raise "Can't find #{@name} in #{deepness} level of response" if deepness > 5
+                           end
 
                            {
-                             path: ["data", k1, k2],
-                             klass: k3_class,
+                             path:,
+                             klass:,
                            }
                          end
     end
@@ -67,14 +77,14 @@ module NxtGqlClient
       return if data.nil?
 
       case type
-        in GraphQL::Language::Nodes::NonNullType
-          transform_variable(data, type.of_type)
-        in GraphQL::Language::Nodes::TypeName
-          transform_argument(data, @api.client.schema.types[type.name])
-        in GraphQL::Language::Nodes::ListType
-          data.map { |row| transform_variable(row, type.of_type) }
-        else
-          raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+      in GraphQL::Language::Nodes::NonNullType
+        transform_variable(data, type.of_type)
+      in GraphQL::Language::Nodes::TypeName
+        transform_argument(data, @api.client.schema.types[type.name])
+      in GraphQL::Language::Nodes::ListType
+        data.map { |row| transform_variable(row, type.of_type) }
+      else
+        raise TypeError, "unexpected #{type.class} (#{type.inspect})"
       end
     end
 

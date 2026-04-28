@@ -124,7 +124,7 @@ module NxtGqlClient
     end
 
     class_methods do
-      def query(name, gql = nil, response_path = nil)
+      def query(name, gql = nil)
         define_singleton_method name do |response_gql: nil, fragments: {}, context: {}, variables: {}|
           return if !api.active? && !::Rails.env.production?
 
@@ -138,14 +138,14 @@ module NxtGqlClient
 
                          parse_query(
                            query: gql,
-                           response_path:
+                           name:
                          )
                        else
                          var_name = "@#{name}"
                          if instance_variable_defined?(var_name)
                            instance_variable_get(var_name)
                          else
-                           instance_variable_set(var_name, parse_query(query: gql, response_path:))
+                           instance_variable_set(var_name, parse_query(query: gql, name:))
                          end
                        end
           definition.call(context:, variables:)
@@ -183,6 +183,13 @@ module NxtGqlClient
       def resolve_class(object)
         typename = object[:__typename]
         return self unless typename
+
+        @child_classes_loaded ||= begin
+                                    file, _line = const_source_location(name)
+                                    base_dir = File.dirname(file)
+                                    Dir["#{base_dir}/**/*.rb"].each { |f| require f }
+                                    true
+                                  end
 
         ([self] + descendants).find { |c| c.typename == typename }
       end
@@ -255,9 +262,9 @@ module NxtGqlClient
         raise "gql_api_url is not specified"
       end
 
-      def parse_query(query:, response_path:)
+      def parse_query(query:, name:)
         definition = api.client.parse(query)
-        Query.new(query_definition: definition, api:, response_path:, wrapper: self)
+        Query.new(query_definition: definition, api:, name:, wrapper: self)
       end
     end
   end
