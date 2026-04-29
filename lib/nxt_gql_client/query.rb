@@ -54,7 +54,7 @@ module NxtGqlClient
                              key = klass.defined_fields.keys.first
                              path << key
                              klass = klass.defined_fields[key]
-                             break if key == @name
+                             break if key.underscore == @name
 
                              deepness += 1
                              raise "Can't find #{@name} in #{deepness} level of response" if deepness > 5
