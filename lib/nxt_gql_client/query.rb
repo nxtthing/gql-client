@@ -1,9 +1,9 @@
 module NxtGqlClient
   class Query
-    def initialize(query_definition:, api:, wrapper:, name:)
+    def initialize(query_definition:, api:, wrapper:, action_name:)
       @api = api
       @query_definition = query_definition
-      @name = name.to_s
+      @action_name = name.to_s
       @wrapper = wrapper
     end
 
@@ -54,10 +54,10 @@ module NxtGqlClient
                              key = klass.defined_fields.keys.first
                              path << key
                              klass = klass.defined_fields[key]
-                             break if key.underscore == @name
+                             break if key.underscore == @action_name
 
                              deepness += 1
-                             raise "Can't find #{@name} in #{deepness} level of response" if deepness > 5
+                             raise "Can't find #{@action_name} in #{deepness} level of response" if deepness > 5
                            end
 
                            {
