@@ -124,7 +124,7 @@ module NxtGqlClient
     end
 
     class_methods do
-      def query(name, gql = nil)
+      def query(name, gql = nil, action_name = name)
         define_singleton_method name do |response_gql: nil, fragments: {}, context: {}, variables: {}|
           return if !api.active? && !::Rails.env.production?
 
@@ -138,14 +138,14 @@ module NxtGqlClient
 
                          parse_query(
                            query: gql,
-                           name:
+                           action_name:
                          )
                        else
                          var_name = "@#{name}"
                          if instance_variable_defined?(var_name)
                            instance_variable_get(var_name)
                          else
-                           instance_variable_set(var_name, parse_query(query: gql, name:))
+                           instance_variable_set(var_name, parse_query(query: gql, action_name:))
                          end
                        end
           definition.call(context:, variables:)
@@ -262,9 +262,9 @@ module NxtGqlClient
         raise "gql_api_url is not specified"
       end
 
-      def parse_query(query:, name:)
+      def parse_query(query:, action_name:)
         definition = api.client.parse(query)
-        Query.new(query_definition: definition, api:, name:, wrapper: self)
+        Query.new(query_definition: definition, api:, action_name:, wrapper: self)
       end
     end
   end
