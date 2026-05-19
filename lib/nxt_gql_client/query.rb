@@ -44,27 +44,27 @@ module NxtGqlClient
     # TODO[SL]: unstable. suggest to require "payload" definition.
     def response_meta
       @response_meta ||= begin
-                           klass = @query_definition.schema_class
-                           path = ["data"]
+        klass = @query_definition.schema_class
+        path = ["data"]
 
-                           deepness = 0
+        deepness = 0
 
-                           loop do
-                             klass = klass.of_klass until klass.respond_to?(:defined_fields)
-                             key = klass.defined_fields.keys.first
-                             path << key
-                             klass = klass.defined_fields[key]
-                             break if key.underscore == @action_name
+        loop do
+          klass = klass.of_klass until klass.respond_to?(:defined_fields)
+          key = klass.defined_fields.keys.first
+          path << key
+          klass = klass.defined_fields[key]
+          break if key.underscore == @action_name
 
-                             deepness += 1
-                             raise "Can't find #{@action_name} in #{deepness} level of response" if deepness > 5
-                           end
+          deepness += 1
+          raise "Can't find #{@action_name} in #{deepness} level of response" if deepness > 5
+        end
 
-                           {
-                             path:,
-                             klass:,
-                           }
-                         end
+        {
+          path:,
+          klass:
+        }
+      end
     end
 
     def transform_variables(data)
@@ -77,64 +77,69 @@ module NxtGqlClient
       return if data.nil?
 
       case type
-      in GraphQL::Language::Nodes::NonNullType
-        transform_variable(data, type.of_type)
-      in GraphQL::Language::Nodes::TypeName
-        transform_argument(data, @api.client.schema.types[type.name])
-      in GraphQL::Language::Nodes::ListType
-        data.map { |row| transform_variable(row, type.of_type) }
-      else
-        raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+        in GraphQL::Language::Nodes::NonNullType
+          transform_variable(data, type.of_type)
+        in GraphQL::Language::Nodes::TypeName
+          transform_argument(data, @api.client.schema.types[type.name])
+        in GraphQL::Language::Nodes::ListType
+          data.map { |row| transform_variable(row, type.of_type) }
+        else
+          raise TypeError, "unexpected #{type.class} (#{type.inspect})"
       end
     end
 
+    # rubocop:disable Metrics/CyclomaticComplexity
     def transform_argument(data, type)
       return if data.nil?
 
       case type.kind.name
-      when "INPUT_OBJECT"
-        type.own_arguments.
-          select { |name, klass| data.key?(name.underscore.to_sym) }.
-          to_h { |name, klass| [name, transform_argument(data[name.underscore.to_sym], klass.type)] }
-      when "NON_NULL"
-        transform_argument(data, type.of_type)
-      when "LIST"
-        data.map { |row| transform_argument(row, type.of_type) }
-      when "ENUM", "SCALAR"
-        data
-      else
-        raise TypeError, "unexpected #{type.class} (#{type.inspect})"
+        when "INPUT_OBJECT"
+          type.own_arguments.
+            select { |name, _klass| data.key?(name.underscore.to_sym) }.
+            to_h { |name, klass| [name, transform_argument(data[name.underscore.to_sym], klass.type)] }
+        when "NON_NULL"
+          transform_argument(data, type.of_type)
+        when "LIST"
+          data.map { |row| transform_argument(row, type.of_type) }
+        when "ENUM", "SCALAR"
+          data
+        else
+          raise TypeError, "unexpected #{type.class} (#{type.inspect})"
       end
     end
+    # rubocop:enable Metrics/CyclomaticComplexity
 
+    # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Lint/DuplicateBranch
     def transform_response(data, klass)
       case klass
-      in GraphQL::Client::Schema::ScalarType
-        data
-      in GraphQL::Client::Schema::EnumType
-        data
-      in GraphQL::Client::Schema::ListType
-        data&.map { |row| transform_response(row, klass.of_klass) }
-      in GraphQL::Client::Schema::NonNullType
-        transform_response(data, klass.of_klass)
-      in GraphQL::Client::Schema::PossibleTypes
-        return if data.nil?
-        typename = data["__typename"]
-        k_klass = klass.possible_types[typename]
-        transform_response(data, k_klass)
-      in GraphQL::Client::Schema::ObjectType::WithDefinition
-        return if data.nil?
+        in GraphQL::Client::Schema::ScalarType
+          data
+        in GraphQL::Client::Schema::EnumType
+          data
+        in GraphQL::Client::Schema::ListType
+          data&.map { |row| transform_response(row, klass.of_klass) }
+        in GraphQL::Client::Schema::NonNullType
+          transform_response(data, klass.of_klass)
+        in GraphQL::Client::Schema::PossibleTypes
+          return if data.nil?
 
-        data.to_h do |k, v|
-          # `k` is the response key (alias); map it back to the canonical
-          # schema field name. Type lookup still goes by `k`.
-          result_key = canonical_field_name(klass, k) || k
-          [result_key.underscore, transform_response(v, klass.defined_fields[k])]
-        end
-      else
-        raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
+          typename = data["__typename"]
+          k_klass = klass.possible_types[typename]
+          transform_response(data, k_klass)
+        in GraphQL::Client::Schema::ObjectType::WithDefinition
+          return if data.nil?
+
+          data.to_h do |k, v|
+            # `k` is the response key (alias); map it back to the canonical
+            # schema field name. Type lookup still goes by `k`.
+            result_key = canonical_field_name(klass, k) || k
+            [result_key.underscore, transform_response(v, klass.defined_fields[k])]
+          end
+        else
+          raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
       end
     end
+    # rubocop:enable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity, Lint/DuplicateBranch
 
     # Response key (alias) -> canonical schema field name, or nil for
     # meta fields like __typename (caller falls back to the response key).
@@ -144,6 +149,7 @@ module NxtGqlClient
       map[response_key]
     end
 
+    # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
     def build_canonical_field_names(klass)
       gql_type = klass.klass.type
       return {} unless gql_type.respond_to?(:get_field)
@@ -168,5 +174,6 @@ module NxtGqlClient
       document.definitions.each { |definition| visit.call(definition) }
       mapping
     end
+    # rubocop:enable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
   end
 end

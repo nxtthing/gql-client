@@ -99,7 +99,7 @@ RSpec.describe NxtGqlClient::Model do
       # Every `value`/`view` must be aliased — no bare selection.
       gql.scan(/(\S+\s+)?\b(value|view)\b/).each do |preceding, name|
         expect(preceding).to match(/:\s*\z/),
-          "found a `#{name}` not preceded by an alias in: #{gql}"
+                             "found a `#{name}` not preceded by an alias in: #{gql}"
       end
     end
 

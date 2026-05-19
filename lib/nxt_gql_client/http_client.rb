@@ -9,4 +9,3 @@ module NxtGqlClient
     end
   end
 end
-

@@ -4,6 +4,7 @@ module NxtGqlClient
   module ProxyArgument
     extend ActiveSupport::Concern
 
+    # rubocop:disable Metrics/BlockLength
     included do
       attr_reader :proxy, :proxy_alias
 
@@ -19,15 +20,18 @@ module NxtGqlClient
         @proxy_alias || keyword
       end
 
+      # rubocop:disable Metrics/CyclomaticComplexity
       def proxy_value(value, type: self.type)
         return value if prepare.present?
         return if value.nil?
 
         case type.kind.name
           when "INPUT_OBJECT"
-            type.include?(NxtGqlClient::ProxyInputObject) ?
-              type.proxy_arguments(value) :
+            if type.include?(NxtGqlClient::ProxyInputObject)
+              type.proxy_arguments(value)
+            else
               value
+            end
           when "NON_NULL"
             proxy_value(value, type: type.of_type)
           when "LIST"
@@ -40,6 +44,7 @@ module NxtGqlClient
             raise TypeError, "unexpected #{type.class} (#{type.inspect})"
         end
       end
+      # rubocop:enable Metrics/CyclomaticComplexity
 
       def format_value(value)
         case value
@@ -50,5 +55,6 @@ module NxtGqlClient
         end
       end
     end
+    # rubocop:enable Metrics/BlockLength
   end
 end

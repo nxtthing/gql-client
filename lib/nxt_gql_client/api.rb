@@ -5,9 +5,9 @@ module NxtGqlClient
   class Api
     attr_reader :url
 
-    def initialize(url, &block)
+    def initialize(url, &)
       @url = url
-      @http_client = HttpClient.new(url, &block)
+      @http_client = HttpClient.new(url, &)
     end
 
     def active?
@@ -16,10 +16,10 @@ module NxtGqlClient
 
     def client
       @client ||= begin
-                    result = ::GraphQL::Client.new(schema:, execute: @http_client)
-                    result.allow_dynamic_queries = true
-                    result
-                  end
+        result = ::GraphQL::Client.new(schema:, execute: @http_client)
+        result.allow_dynamic_queries = true
+        result
+      end
     end
 
     private

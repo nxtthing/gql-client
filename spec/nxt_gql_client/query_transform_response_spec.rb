@@ -79,10 +79,10 @@ RSpec.describe NxtGqlClient::Query do
 
       # __typename: no canonical field -> fallback to response key.
       expect(result).to eq([{
-        "__typename" => "CheckboxQuestionChat",
-        "id" => "1",
-        "value" => true
-      }])
+                             "__typename" => "CheckboxQuestionChat",
+                             "id" => "1",
+                             "value" => true
+                           }])
     end
 
     it "maps polymorphic per-type aliases back to canonical value/view" do
@@ -100,14 +100,14 @@ RSpec.describe NxtGqlClient::Query do
       GQL
 
       result = transform(definition, "questions", [
-        { "__typename" => "CheckboxQuestionChat", "id" => "1", "checkboxValue" => true },
-        { "__typename" => "SelectQuestionChat", "id" => "2",
-          "selectValue" => "a", "selectView" => "DROPDOWN" },
-        { "__typename" => "MultiSelectQuestionChat", "id" => "3",
-          "multiSelectValue" => ["a", "b"] },
-        { "__typename" => "DateQuestionChat", "id" => "4",
-          "dateValue" => "2026-05-20", "dateView" => "CALENDAR" }
-      ])
+                           { "__typename" => "CheckboxQuestionChat", "id" => "1", "checkboxValue" => true },
+                           { "__typename" => "SelectQuestionChat", "id" => "2",
+                             "selectValue" => "a", "selectView" => "DROPDOWN" },
+                           { "__typename" => "MultiSelectQuestionChat", "id" => "3",
+                             "multiSelectValue" => %w[a b] },
+                           { "__typename" => "DateQuestionChat", "id" => "4",
+                             "dateValue" => "2026-05-20", "dateView" => "CALENDAR" }
+                         ])
       checkbox, select, multi, date = result
 
       expect(checkbox).to eq("__typename" => "CheckboxQuestionChat", "id" => "1", "value" => true)
@@ -117,7 +117,7 @@ RSpec.describe NxtGqlClient::Query do
       )
       expect(multi).to eq(
         "__typename" => "MultiSelectQuestionChat", "id" => "3",
-        "value" => ["a", "b"]
+        "value" => %w[a b]
       )
       expect(date).to eq(
         "__typename" => "DateQuestionChat", "id" => "4",
@@ -182,10 +182,10 @@ RSpec.describe NxtGqlClient::Query do
 
       # consumer sees canonical names, not the client's aliases
       expect(mapped).to eq([
-        { "__typename" => "CheckboxQuestionChat", "id" => "1", "value" => true },
-        { "__typename" => "SelectQuestionChat", "id" => "2",
-          "value" => "x", "view" => "DROPDOWN" }
-      ])
+                             { "__typename" => "CheckboxQuestionChat", "id" => "1", "value" => true },
+                             { "__typename" => "SelectQuestionChat", "id" => "2",
+                               "value" => "x", "view" => "DROPDOWN" }
+                           ])
     end
   end
 end

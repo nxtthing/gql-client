@@ -6,7 +6,9 @@ module NxtGqlClient
       attr_reader :proxy_attrs, :proxy_children, :proxy
 
       class_eval do
+        # rubocop:disable Metrics/ParameterLists
         def initialize(*args, proxy: true, proxy_attrs: true, proxy_children: true, proxy_alias: nil, **kwargs, &block)
+          # rubocop:enable Metrics/ParameterLists
           super(*args, **kwargs, &block)
           @proxy_attrs = proxy_attrs
           @proxy = proxy

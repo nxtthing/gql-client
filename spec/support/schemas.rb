@@ -25,12 +25,14 @@ module SpecSchemas
     end
   end
 
+  # rubocop:disable Metrics/MethodLength
   def build_schema
     pfc = proxy_field_class
 
     # interface QuestionChat { id: ID! }
     question_iface = Module.new do
       include GraphQL::Schema::Interface
+
       graphql_name "QuestionChat"
       field :id, GraphQL::Types::ID, null: false
 
@@ -134,4 +136,5 @@ module SpecSchemas
       define_singleton_method(:resolve_type) { |*| raise "unused in specs" }
     end
   end
+  # rubocop:enable Metrics/MethodLength
 end

@@ -25,8 +25,8 @@ module NxtGqlClient
         variables: proxy_arguments,
         context: proxy_context
       )
-    rescue InvalidResponse => exc
-      handle_invalid_response_error(exc)
+    rescue InvalidResponse => e
+      handle_invalid_response_error(e)
     end
 
     class_methods do
@@ -59,6 +59,7 @@ module NxtGqlClient
 
     private
 
+    # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
     def to_node
       object_name = object.field.name
       field_name = field.name
@@ -66,18 +67,19 @@ module NxtGqlClient
         definition.selections.each do |selection|
           selection_object = selection if selection.name == object_name
           selection_object ||= selection.
-            children.
-            find { |child| child.name == object_name }
-          if selection_object
-            node = selection_object.
-              children.
-              find { |child| child.name == field_name }
-            return node if node
-          end
+                                 children.
+                                 find { |child| child.name == object_name }
+          next unless selection_object
+
+          node = selection_object.
+                   children.
+                   find { |child| child.name == field_name }
+          return node if node
         end
       end
 
       raise "no definition for #{object_name}.#{field_name} resolver"
     end
+    # rubocop:enable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
   end
 end

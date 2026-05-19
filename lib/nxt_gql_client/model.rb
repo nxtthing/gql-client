@@ -6,11 +6,13 @@ require "nxt_gql_client/printer"
 require "nxt_gql_client/proxy_field"
 
 module NxtGqlClient
+  # rubocop:disable Metrics/ModuleLength
   module Model
     extend ActiveSupport::Concern
 
     included do
       attr_reader :object
+
       delegate :[], to: :object
     end
 
@@ -40,9 +42,11 @@ module NxtGqlClient
 
       private
 
+      # rubocop:disable Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
       def node_to_gql(node:, type:, context:, fragments:)
         return unless type.respond_to?(:fields)
 
+        # rubocop:disable Metrics/BlockLength
         fields = node.children.map do |child|
           next if child.is_a?(GraphQL::Language::Nodes::InputObject)
 
@@ -53,7 +57,9 @@ module NxtGqlClient
               fragment_typename = fragment_definition.type.name
               fragment_type = context.schema.types[fragment_typename]
 
+              # rubocop:disable Layout/LineLength
               proxy_typename = fragment_type.respond_to?(:proxy_model) ? fragment_type.proxy_model.typename : fragment_typename
+              # rubocop:enable Layout/LineLength
 
               fragment = { name: child.name, type: fragment_type, proxy_typename: }
               fragments[name] = fragment
@@ -73,7 +79,7 @@ module NxtGqlClient
             fragment_type = context.schema.types[fragment_typename]
             proxy_typename = fragment_type.proxy_model.typename
             fragment_gql = node_to_gql(node: child, type: fragment_type, context:, fragments:)
-            next "... on #{ proxy_typename } #{ fragment_gql }"
+            next "... on #{proxy_typename} #{fragment_gql}"
           end
 
           field = type.fields[child.name]
@@ -84,7 +90,9 @@ module NxtGqlClient
 
           field_name = is_proxy_field ? field.proxy_name : field.name
 
+          # rubocop:disable Layout/LineLength
           arguments = if is_proxy_field && field.proxy_attrs && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
+                        # rubocop:enable Layout/LineLength
                         Printer.new(context:).print_args(child.arguments)
                       else
                         ""
@@ -92,8 +100,6 @@ module NxtGqlClient
 
           children = if !is_proxy_field || field.proxy_children
                        node_to_gql(node: child, type: Model.field_type(field), context:, fragments:)
-                     else
-                       nil
                      end
 
           output_field_name = field_name.start_with?("_") ? field_name : field_name.camelize(:lower)
@@ -108,6 +114,7 @@ module NxtGqlClient
             children
           ].join
         end.compact
+        # rubocop:enable Metrics/BlockLength
 
         if type.include?(GraphQL::Schema::Interface) && !type.ancestors.include?(GraphQL::Schema::Object)
           fields.push("__typename").uniq!
@@ -116,11 +123,12 @@ module NxtGqlClient
         return if fields.empty?
 
         if node.is_a?(GraphQL::Language::Nodes::FragmentDefinition)
-          %( #{ fields.join("\n") } )
+          %( #{fields.join("\n")} )
         else
-          %( { #{ fields.join("\n") } })
+          %( { #{fields.join("\n")} })
         end
       end
+      # rubocop:enable Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
     end
 
     private
@@ -130,7 +138,9 @@ module NxtGqlClient
       @association_cache[name] ||= yield
     end
 
+    # rubocop:disable Metrics/BlockLength
     class_methods do
+      # rubocop:disable Metrics/MethodLength, Metrics/PerceivedComplexity
       def query(name, gql = nil, action_name = name)
         define_singleton_method name do |response_gql: nil, fragments: {}, context: {}, variables: {}|
           return if !api.active? && !::Rails.env.production?
@@ -158,18 +168,19 @@ module NxtGqlClient
           definition.call(context:, variables:)
         end
 
-        if async?
-          require "nxt_gql_client/async_query_job"
-          define_singleton_method "#{name}_later" do |**variables|
-            AsyncQueryJob.set(queue: async_queue).perform_later(
-              ".#{Object.const_source_location(self.name)[0].remove(::Rails.root.to_s)}",
-              self.name,
-              name,
-              variables
-            )
-          end
+        return unless async?
+
+        require "nxt_gql_client/async_query_job"
+        define_singleton_method "#{name}_later" do |**variables|
+          AsyncQueryJob.set(queue: async_queue).perform_later(
+            ".#{Object.const_source_location(self.name)[0].remove(::Rails.root.to_s)}",
+            self.name,
+            name,
+            variables
+          )
         end
       end
+      # rubocop:enable Metrics/MethodLength, Metrics/PerceivedComplexity
 
       def attributes(*attribute_names)
         attribute_names.each do |attribute_name|
@@ -192,15 +203,16 @@ module NxtGqlClient
         return self unless typename
 
         @child_classes_loaded ||= begin
-                                    file, _line = const_source_location(name)
-                                    base_dir = File.dirname(file)
-                                    Dir["#{base_dir}/**/*.rb"].each { |f| require f }
-                                    true
-                                  end
+          file, _line = const_source_location(name)
+          base_dir = File.dirname(file)
+          Dir["#{base_dir}/**/*.rb"].each { |f| require f }
+          true
+        end
 
         ([self] + descendants).find { |c| c.typename == typename }
       end
 
+      # rubocop:disable Naming/PredicatePrefix
       def has_many(association_name, class_name: nil)
         define_method association_name do |**_args|
           wrapper = self.class.association_class(association_name:, class_name:)
@@ -219,6 +231,7 @@ module NxtGqlClient
           end
         end
       end
+      # rubocop:enable Naming/PredicatePrefix
 
       def gql_api_url(url = nil, async: false, &block)
         if url
@@ -244,18 +257,17 @@ module NxtGqlClient
       def association_class(association_name:, class_name:)
         @association_class_per_name ||= {}
         @association_class_per_name[association_name] ||= begin
-                                                            class_name ||= association_name.to_s.singularize.camelize
-                                                            begin
-                                                              class_name.constantize
-                                                            rescue NameError
-                                                              class_name_name_spaces = name.split("::")
-                                                              class_name_name_spaces[class_name_name_spaces.size - 1] = class_name
-                                                              class_name_name_spaces.join("::").constantize
-                                                            end
-                                                          end
+          class_name ||= association_name.to_s.singularize.camelize
+          begin
+            class_name.constantize
+          rescue NameError
+            class_name_name_spaces = name.split("::")
+            class_name_name_spaces[class_name_name_spaces.size - 1] =
+              class_name
+            class_name_name_spaces.join("::").constantize
+          end
+        end
       end
-
-      private
 
       def async?
         false
@@ -274,5 +286,7 @@ module NxtGqlClient
         Query.new(query_definition: definition, api:, action_name:, wrapper: self)
       end
     end
+    # rubocop:enable Metrics/BlockLength
   end
+  # rubocop:enable Metrics/ModuleLength
 end
