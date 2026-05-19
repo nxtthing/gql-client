@@ -1,9 +1,8 @@
 module NxtGqlClient
   class Printer < ::GraphQL::Language::Printer
-    def initialize(context:, field:)
+    def initialize(context:)
       super()
       @context = context
-      @field = field
     end
 
     def print_args(node)
@@ -25,14 +24,6 @@ module NxtGqlClient
         value = input_class.proxy_type.coerce_result(value, @context)
       end
       print_string(GraphQL::Language.serialize(value))
-    end
-
-    def print_argument(argument)
-      field_argument = @field.arguments[argument.name]
-      name = field_argument ? field_argument.keyword.to_s.camelize(:lower) : argument.name
-      print_string(argument.name)
-      print_string(": ")
-      print_node(argument.value)
     end
   end
 end
