@@ -95,8 +95,15 @@ module NxtGqlClient
                      else
                        nil
                      end
+
+          output_field_name = field_name.start_with?("_") ? field_name : field_name.camelize(:lower)
+
+          node_alias = child.alias if child.respond_to?(:alias)
+          alias_prefix = node_alias.present? && node_alias != output_field_name ? "#{node_alias}: " : ""
+
           [
-            field_name.start_with?("_") ? field_name : field_name.camelize(:lower),
+            alias_prefix,
+            output_field_name,
             arguments,
             children
           ].join

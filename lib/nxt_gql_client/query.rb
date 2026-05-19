@@ -125,12 +125,48 @@ module NxtGqlClient
       in GraphQL::Client::Schema::ObjectType::WithDefinition
         return if data.nil?
 
-        data.to_h do |k,v|
-          [k.underscore, transform_response(v, klass.defined_fields[k])]
+        data.to_h do |k, v|
+          # `k` is the response key (alias); map it back to the canonical
+          # schema field name. Type lookup still goes by `k`.
+          result_key = canonical_field_name(klass, k) || k
+          [result_key.underscore, transform_response(v, klass.defined_fields[k])]
         end
       else
         raise TypeError, "unexpected #{klass.class} (#{klass.inspect})"
       end
+    end
+
+    # Response key (alias) -> canonical schema field name, or nil for
+    # meta fields like __typename (caller falls back to the response key).
+    def canonical_field_name(klass, response_key)
+      @canonical_field_names ||= {}.compare_by_identity
+      map = @canonical_field_names[klass] ||= build_canonical_field_names(klass)
+      map[response_key]
+    end
+
+    def build_canonical_field_names(klass)
+      gql_type = klass.klass.type
+      return {} unless gql_type.respond_to?(:get_field)
+
+      document = klass.definition.document
+      null_context = if GraphQL::Query::NullContext.respond_to?(:instance)
+                       GraphQL::Query::NullContext.instance
+                     else
+                       GraphQL::Query::NullContext
+                     end
+
+      mapping = {}
+      visit = lambda do |node|
+        if node.is_a?(GraphQL::Language::Nodes::Field)
+          response_key = node.alias || node.name
+          if !mapping.key?(response_key) && gql_type.get_field(node.name, null_context)
+            mapping[response_key] = node.name
+          end
+        end
+        node.children.each { |child| visit.call(child) } if node.respond_to?(:children)
+      end
+      document.definitions.each { |definition| visit.call(definition) }
+      mapping
     end
   end
 end
