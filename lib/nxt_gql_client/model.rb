@@ -113,8 +113,11 @@ module NxtGqlClient
           # call (e.g. `trainings: tags(filter: ...)`). Pin it under the
           # owning type so the response transformer keeps it as-is instead
           # of collapsing siblings that share the underlying field name.
+          # Camelize because the alias is emitted via `field_name.camelize(:lower)`
+          # below, so a snake_case alias like `primary_functions:` reaches the
+          # remote as `primaryFunctions:` and the response key matches that.
           if preserved_aliases && owner_typename && is_proxy_field && (alias_key = field.proxy_alias_key)
-            (preserved_aliases[owner_typename] ||= Set.new) << alias_key
+            (preserved_aliases[owner_typename] ||= Set.new) << alias_key.camelize(:lower)
           end
 
           # rubocop:disable Layout/LineLength

@@ -146,6 +146,23 @@ RSpec.describe NxtGqlClient::Model do
       )
     end
 
+    it "camelizes a snake_case proxy_alias key to match the camelized remote response key" do
+      # `primary_functions` in the spec schema's proxy_alias is written
+      # snake_case (admin-back's tags_field generates it that way), but
+      # node_to_gql emits the proxy_alias via `field_name.camelize(:lower)`,
+      # so the remote sees `primaryFunctions:` and answers under that key.
+      # The pin has to match the *emitted* alias, not the raw source string.
+      params = rebuild_params(
+        "{ associate { primaryFunctions { value } } }",
+        field_name: "associate",
+        schema_type: schema.types["AssociateSchedulingTool"]
+      )
+
+      expect(params[:response_gql]).to include("primaryFunctions: tags")
+      expect(params[:response_gql]).not_to include("primary_functions: tags")
+      expect(params[:preserved_aliases]).to eq("Associate" => Set["primaryFunctions"])
+    end
+
     it "does not collect anything for selections without proxy_alias" do
       params = rebuild_params(
         "{ article { title } }",

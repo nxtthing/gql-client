@@ -145,6 +145,12 @@ module SpecSchemas
     # this side. The admin-back graphql_name (`AssociateSchedulingTool`) is
     # deliberately different from the proxy_model.typename (`Associate`) — that
     # mismatch is the prod reality and what preserved_aliases must survive.
+    # The `primary_functions` alias is intentionally written snake_case in the
+    # proxy_alias string — that's what admin-back's tags_field helper produces
+    # via `gql(alias_name: :primary_functions)`. node_to_gql then runs
+    # `field_name.camelize(:lower)` on the whole proxy_alias string, so the
+    # alias reaches the remote camelCased (`primaryFunctions:`). The pin must
+    # match that camelCased form, not the snake_case one we wrote here.
     # rubocop:disable Layout/LineLength
     associate = Class.new(GraphQL::Schema::Object) do
       graphql_name "AssociateSchedulingTool"
@@ -153,7 +159,7 @@ module SpecSchemas
       field :trainings, [tag], null: false,
                                proxy_alias: 'trainings: tags(filter: { keys: ["training"] }) { value }'
       field :primary_functions, [tag], null: false,
-                                       proxy_alias: 'primaryFunctions: tags(filter: { keys: ["primaryFunction"] }) { value }'
+                                       proxy_alias: 'primary_functions: tags(filter: { keys: ["primaryFunction"] }) { value }'
       field :types, [tag], null: false,
                            proxy_alias: 'types: tags(filter: { keys: ["type"] }) { value }'
       define_singleton_method(:proxy_model) { ProxyModelStub.new("Associate") }
