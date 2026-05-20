@@ -12,6 +12,7 @@ ProxyModelStub = Struct.new(:typename) unless defined?(ProxyModelStub)
 # the reverse path, so SDL is unnecessary.
 #
 # Each block below carries the SDL it mirrors so the schema reads top-down.
+# rubocop:disable Metrics/ModuleLength
 module SpecSchemas
   module_function
 
@@ -120,14 +121,68 @@ module SpecSchemas
       end
     end
 
+    # type Tag { value: String! }
+    tag = Class.new(GraphQL::Schema::Object) do
+      graphql_name "Tag"
+      field_class pfc
+      field :value, GraphQL::Types::String, null: false
+    end
+
+    # input TagsFilter { keys: [String!]! }
+    tags_filter = Class.new(GraphQL::Schema::InputObject) do
+      graphql_name "TagsFilter"
+      argument :keys, [GraphQL::Types::String], required: true
+    end
+
+    # type Associate {
+    #   id: ID!
+    #   trainings:        [Tag!]!   # proxied to remote `tags(filter: {keys: ["training"]})`
+    #   primaryFunctions: [Tag!]!   # proxied to remote `tags(filter: {keys: ["primaryFunction"]})`
+    #   types:            [Tag!]!   # proxied to remote `tags(filter: {keys: ["type"]})`
+    # }
+    # Client-facing (admin-back) shape: three separate fields whose proxy_alias
+    # carries the literal remote selection text. `node_to_gql` is what exercises
+    # this side.
+    # rubocop:disable Layout/LineLength
+    associate = Class.new(GraphQL::Schema::Object) do
+      graphql_name "Associate"
+      field_class pfc
+      field :id, GraphQL::Types::ID, null: false
+      field :trainings, [tag], null: false,
+                               proxy_alias: 'trainings: tags(filter: { keys: ["training"] }) { value }'
+      field :primary_functions, [tag], null: false,
+                                       proxy_alias: 'primaryFunctions: tags(filter: { keys: ["primaryFunction"] }) { value }'
+      field :types, [tag], null: false,
+                           proxy_alias: 'types: tags(filter: { keys: ["type"] }) { value }'
+      define_singleton_method(:proxy_model) { ProxyModelStub.new("Associate") }
+    end
+    # rubocop:enable Layout/LineLength
+
+    # type RemoteAssociate { id: ID! tags(filter: TagsFilter!): [Tag!]! }
+    # Remote-facing (scheduling-tool) shape: a single `tags(filter: ...)` field
+    # that the rebuilt admin-back query calls three times under different
+    # aliases. transform_response runs against this schema.
+    remote_associate = Class.new(GraphQL::Schema::Object) do
+      graphql_name "RemoteAssociate"
+      field_class pfc
+      field :id, GraphQL::Types::ID, null: false
+      field :tags, [tag], null: false do
+        argument :filter, tags_filter, required: true
+      end
+    end
+
     # type Query {
     #   questions: [QuestionChat!]!
     #   article: Article!
+    #   associate: Associate!
+    #   remoteAssociate: RemoteAssociate!
     # }
     query_type = Class.new(GraphQL::Schema::Object) do
       graphql_name "Query"
       field :questions, [question_iface], null: false
       field :article, article, null: false
+      field :associate, associate, null: false
+      field :remote_associate, remote_associate, null: false
     end
 
     Class.new(GraphQL::Schema) do
@@ -138,3 +193,4 @@ module SpecSchemas
   end
   # rubocop:enable Metrics/MethodLength
 end
+# rubocop:enable Metrics/ModuleLength

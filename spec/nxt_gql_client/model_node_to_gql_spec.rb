@@ -8,6 +8,10 @@ RSpec.describe NxtGqlClient::Model do
   # field selected by `field_name`, plus a `result_class` whose `type` is the
   # corresponding schema type — exactly what dynamic_query_params expects.
   def rebuild(query_string, field_name:, schema_type:)
+    rebuild_params(query_string, field_name:, schema_type:)[:response_gql]
+  end
+
+  def rebuild_params(query_string, field_name:, schema_type:)
     document = GraphQL::Language::Parser.parse(query_string)
     query = GraphQL::Query.new(schema, document: document)
     context = query.context
@@ -21,7 +25,7 @@ RSpec.describe NxtGqlClient::Model do
       node: node,
       result_class: result_class,
       context: context
-    )[:response_gql]
+    )
   end
 
   describe ".node_to_gql alias handling" do
@@ -113,6 +117,125 @@ RSpec.describe NxtGqlClient::Model do
 
       expect(gql).to match(/byline:\s*writer\s*\{/)
       expect(gql).not_to match(/(^|[^:])\bauthor\b/)
+    end
+  end
+
+  describe ".dynamic_query_params preserved_aliases" do
+    # Pins are stored as Hash{owner_typename => Set[alias_key]} so a pin on
+    # one type can't bleed into a sibling subtree that uses the same name as
+    # a normal client alias.
+    it "collects the alias key for a single proxy_alias-decorated field" do
+      params = rebuild_params(
+        "{ associate { trainings { value } } }",
+        field_name: "associate",
+        schema_type: schema.types["Associate"]
+      )
+
+      expect(params[:preserved_aliases]).to eq("Associate" => Set["trainings"])
+    end
+
+    it "collects every alias when multiple proxy_alias siblings share one remote field" do
+      params = rebuild_params(
+        "{ associate { trainings { value } primaryFunctions { value } types { value } } }",
+        field_name: "associate",
+        schema_type: schema.types["Associate"]
+      )
+
+      expect(params[:preserved_aliases]).to eq(
+        "Associate" => Set["trainings", "primaryFunctions", "types"]
+      )
+    end
+
+    it "does not collect anything for selections without proxy_alias" do
+      params = rebuild_params(
+        "{ article { title } }",
+        field_name: "article",
+        schema_type: schema.types["Article"]
+      )
+
+      expect(params[:preserved_aliases]).to be_empty
+    end
+
+    it "does not collect a proxy_alias without a `:` prefix (no alias keyed in)" do
+      # Article.author has proxy_alias: "writer" — no `:`, so nothing to pin.
+      params = rebuild_params(
+        "{ article { author { fullName } } }",
+        field_name: "article",
+        schema_type: schema.types["Article"]
+      )
+
+      expect(params[:preserved_aliases]).to be_empty
+    end
+
+    it "collects aliases declared inside an InlineFragment, owned by the inline fragment type" do
+      # Place the proxy_alias-decorated selections inside an inline fragment to
+      # exercise the recursive node_to_gql branch.
+      query_string = <<~GQL
+        {
+          questions {
+            ... on CheckboxQuestionChat {
+              checkboxValue: value
+            }
+          }
+          associate {
+            ... on Associate {
+              trainings { value }
+              types { value }
+            }
+          }
+        }
+      GQL
+
+      params = rebuild_params(
+        query_string,
+        field_name: "associate",
+        schema_type: schema.types["Associate"]
+      )
+
+      expect(params[:preserved_aliases]).to eq(
+        "Associate" => Set["trainings", "types"]
+      )
+    end
+
+    it "collects aliases declared inside a FragmentSpread, owned by the fragment's type" do
+      query_string = <<~GQL
+        fragment AssociateTags on Associate {
+          trainings { value }
+          primaryFunctions { value }
+        }
+        { associate { ...AssociateTags types { value } } }
+      GQL
+
+      params = rebuild_params(
+        query_string,
+        field_name: "associate",
+        schema_type: schema.types["Associate"]
+      )
+
+      # Aliases inside the fragment are owned by Associate (the fragment's
+      # `on` type) — same owner as the inline `types` selection, so they
+      # all land in one Associate-keyed set.
+      expect(params[:preserved_aliases]).to eq(
+        "Associate" => Set["trainings", "primaryFunctions", "types"]
+      )
+    end
+  end
+
+  describe NxtGqlClient::ProxyField, "#proxy_alias_key" do
+    let(:trainings_field) { SpecSchemas.schema.types["Associate"].fields["trainings"] }
+    let(:author_field) { SpecSchemas.schema.types["Article"].fields["author"] }
+    let(:title_field) { SpecSchemas.schema.types["Article"].fields["title"] }
+
+    it "extracts the alias identifier from a `name: real(...)` proxy_alias string" do
+      expect(trainings_field.proxy_alias_key).to eq("trainings")
+    end
+
+    it "returns nil when proxy_alias has no `:` prefix" do
+      expect(author_field.proxy_alias_key).to be_nil
+    end
+
+    it "returns nil when proxy_alias was never set" do
+      expect(title_field.proxy_alias_key).to be_nil
     end
   end
 end

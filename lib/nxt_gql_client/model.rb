@@ -27,24 +27,32 @@ module NxtGqlClient
 
       def dynamic_query_params(node:, result_class:, context:)
         fragments = {}
+        preserved_aliases = {}
         response_gql = node_to_gql(
           node:,
           type: field_type(result_class),
           context:,
-          fragments:
+          fragments:,
+          preserved_aliases:
         )
 
         {
           response_gql:,
-          fragments:
+          fragments:,
+          preserved_aliases:
         }
       end
 
       private
 
       # rubocop:disable Metrics/MethodLength, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
-      def node_to_gql(node:, type:, context:, fragments:)
+      def node_to_gql(node:, type:, context:, fragments:, preserved_aliases: nil)
         return unless type.respond_to?(:fields)
+
+        # The type whose selection we're inside owns any proxy_alias pins
+        # collected here. Scoping pins by owner stops `trainings` (an alias on
+        # one type) from freezing a same-named client alias on a sibling type.
+        owner_typename = type.respond_to?(:graphql_name) ? type.graphql_name : nil
 
         # rubocop:disable Metrics/BlockLength
         fields = node.children.map do |child|
@@ -67,7 +75,8 @@ module NxtGqlClient
                 node: fragment_definition,
                 type: fragment_type,
                 context:,
-                fragments:
+                fragments:,
+                preserved_aliases:
               )
             end
 
@@ -78,7 +87,7 @@ module NxtGqlClient
             fragment_typename = child.type.name
             fragment_type = context.schema.types[fragment_typename]
             proxy_typename = fragment_type.proxy_model.typename
-            fragment_gql = node_to_gql(node: child, type: fragment_type, context:, fragments:)
+            fragment_gql = node_to_gql(node: child, type: fragment_type, context:, fragments:, preserved_aliases:)
             next "... on #{proxy_typename} #{fragment_gql}"
           end
 
@@ -90,6 +99,15 @@ module NxtGqlClient
 
           field_name = is_proxy_field ? field.proxy_name : field.name
 
+          # When a ProxyField was declared with an explicit proxy_alias, the
+          # alias inside that string becomes the response key on the proxied
+          # call (e.g. `trainings: tags(filter: ...)`). Pin it under the
+          # owning type so the response transformer keeps it as-is instead
+          # of collapsing siblings that share the underlying field name.
+          if preserved_aliases && owner_typename && is_proxy_field && (alias_key = field.proxy_alias_key)
+            (preserved_aliases[owner_typename] ||= Set.new) << alias_key
+          end
+
           # rubocop:disable Layout/LineLength
           arguments = if is_proxy_field && field.proxy_attrs && child.is_a?(GraphQL::Language::Nodes::Field) && child.arguments.present?
                         # rubocop:enable Layout/LineLength
@@ -99,7 +117,7 @@ module NxtGqlClient
                       end
 
           children = if !is_proxy_field || field.proxy_children
-                       node_to_gql(node: child, type: Model.field_type(field), context:, fragments:)
+                       node_to_gql(node: child, type: Model.field_type(field), context:, fragments:, preserved_aliases:)
                      end
 
           output_field_name = field_name.start_with?("_") ? field_name : field_name.camelize(:lower)
@@ -142,7 +160,9 @@ module NxtGqlClient
     class_methods do
       # rubocop:disable Metrics/MethodLength, Metrics/PerceivedComplexity
       def query(name, gql = nil, action_name = name)
-        define_singleton_method name do |response_gql: nil, fragments: {}, context: {}, variables: {}|
+        # rubocop:disable Layout/LineLength
+        define_singleton_method name do |response_gql: nil, fragments: {}, preserved_aliases: nil, context: {}, variables: {}|
+          # rubocop:enable Layout/LineLength
           return if !api.active? && !::Rails.env.production?
 
           definition = if block_given?
@@ -155,7 +175,8 @@ module NxtGqlClient
 
                          parse_query(
                            query: gql,
-                           action_name:
+                           action_name:,
+                           preserved_aliases:
                          )
                        else
                          var_name = "@#{name}"
@@ -281,9 +302,15 @@ module NxtGqlClient
         raise "gql_api_url is not specified"
       end
 
-      def parse_query(query:, action_name:)
+      def parse_query(query:, action_name:, preserved_aliases: nil)
         definition = api.client.parse(query)
-        Query.new(query_definition: definition, api:, action_name:, wrapper: self)
+        Query.new(
+          query_definition: definition,
+          api:,
+          action_name:,
+          wrapper: self,
+          preserved_aliases:
+        )
       end
     end
     # rubocop:enable Metrics/BlockLength

@@ -1,10 +1,11 @@
 module NxtGqlClient
   class Query
-    def initialize(query_definition:, api:, wrapper:, action_name:)
+    def initialize(query_definition:, api:, wrapper:, action_name:, preserved_aliases: nil)
       @api = api
       @query_definition = query_definition
       @action_name = action_name.to_s
       @wrapper = wrapper
+      @preserved_aliases = preserved_aliases
     end
 
     def call(context: {}, variables: {})
@@ -129,10 +130,21 @@ module NxtGqlClient
         in GraphQL::Client::Schema::ObjectType::WithDefinition
           return if data.nil?
 
+          owner_typename = klass.klass.type.graphql_name if klass.klass.type.respond_to?(:graphql_name)
+          pinned = owner_typename && @preserved_aliases ? @preserved_aliases[owner_typename] : nil
+
           data.to_h do |k, v|
             # `k` is the response key (alias); map it back to the canonical
-            # schema field name. Type lookup still goes by `k`.
-            result_key = canonical_field_name(klass, k) || k
+            # schema field name unless the owning type pinned this alias as
+            # the canonical response key (proxy_alias case). Pins are scoped
+            # by owner type so a `trainings` alias on one type can't freeze a
+            # same-named client alias on a sibling type. Field-type lookup
+            # still goes by `k`.
+            result_key = if pinned&.include?(k)
+                           k
+                         else
+                           canonical_field_name(klass, k) || k
+                         end
             [result_key.underscore, transform_response(v, klass.defined_fields[k])]
           end
         else

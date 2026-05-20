@@ -18,8 +18,10 @@ RSpec.describe NxtGqlClient::Query do
     klass.defined_fields[field]
   end
 
-  def transform(definition, field, data)
-    query.send(:transform_response, data, schema_klass_for(definition, field))
+  def transform(definition, field, data, preserved_aliases: nil)
+    q = described_class.allocate
+    q.instance_variable_set(:@preserved_aliases, preserved_aliases) if preserved_aliases
+    q.send(:transform_response, data, schema_klass_for(definition, field))
   end
 
   describe "#transform_response alias handling" do
@@ -134,6 +136,116 @@ RSpec.describe NxtGqlClient::Query do
     end
   end
 
+  describe "#transform_response with preserved_aliases (proxy_alias collision)" do
+    # The rebuilt remote query selects `tags(filter: ...)` three times under
+    # different aliases — admin-back's tags_field pattern. The client schema
+    # (scheduling-tool side) only knows one `tags` field, so `canonical_field_name`
+    # maps every alias back to `"tags"`. preserved_aliases is what stops the
+    # three result sets from being collapsed into one bucket.
+    let(:definition) do
+      client.parse(<<~GQL)
+        query {
+          remoteAssociate {
+            trainings:        tags(filter: { keys: ["associate.training"] }) { value }
+            primaryFunctions: tags(filter: { keys: ["associate.primaryFunction"] }) { value }
+            types:            tags(filter: { keys: ["associate.type"] }) { value }
+          }
+        }
+      GQL
+    end
+
+    let(:remote_response) do
+      {
+        "trainings" => [{ "value" => "Recruiter_Academy" }],
+        "primaryFunctions" => [{ "value" => "Sourcing" }],
+        "types" => [{ "value" => "Internal" }]
+      }
+    end
+
+    it "keeps every alias as its own key when pinned by preserved_aliases" do
+      result = transform(
+        definition, "remoteAssociate", remote_response,
+        preserved_aliases: {
+          "RemoteAssociate" => Set["trainings", "primaryFunctions", "types"]
+        }
+      )
+
+      # Wrapper-side `object[:trainings].pluck(:value)` must find data under
+      # the underscored canonical key. snake_case-ing of the alias is
+      # transform_response's job and must apply equally to pinned aliases.
+      expect(result).to eq(
+        "trainings" => [{ "value" => "Recruiter_Academy" }],
+        "primary_functions" => [{ "value" => "Sourcing" }],
+        "types" => [{ "value" => "Internal" }]
+      )
+    end
+
+    it "does NOT pin an alias just because Associate elsewhere reserved the same name" do
+      # End-to-end repro of the leak: node_to_gql is what produces the
+      # preserved_aliases payload, so we drive it the same way the proxy
+      # resolver does. The Associate subtree pins `trainings`; the questions
+      # subtree happens to use the same identifier as a per-type client alias
+      # that means `value`. Those two must not collide.
+      client_query = <<~GQL
+        {
+          associate { trainings { value } }
+          questions {
+            id
+            ... on CheckboxQuestionChat { trainings: value }
+          }
+        }
+      GQL
+
+      document = GraphQL::Language::Parser.parse(client_query)
+      server_query = GraphQL::Query.new(schema, document: document)
+
+      associate_node = document.definitions.first.selections.find { |s| s.name == "associate" }
+      params = NxtGqlClient::Model.dynamic_query_params(
+        node: associate_node,
+        result_class: Struct.new(:type).new(schema.types["Associate"]),
+        context: server_query.context
+      )
+
+      questions_definition = client.parse(<<~GQL)
+        query {
+          questions {
+            id
+            __typename
+            ... on CheckboxQuestionChat { trainings: value }
+          }
+        }
+      GQL
+
+      questions_response = [
+        { "__typename" => "CheckboxQuestionChat", "id" => "1", "trainings" => true }
+      ]
+
+      mapped = transform(
+        questions_definition, "questions", questions_response,
+        preserved_aliases: params[:preserved_aliases]
+      )
+
+      # If the pin escapes its owner type, `trainings` survives untouched
+      # and `value` is missing — wrapper-side `object[:value]` would be nil.
+      expect(mapped.first).to     have_key("value")
+      expect(mapped.first).not_to have_key("trainings")
+    end
+
+    it "regression: without preserved_aliases the three aliases collapse onto one canonical key" do
+      # This is the bug the change fixes. All three response keys
+      # `trainings|primaryFunctions|types` map to the canonical field `tags`,
+      # so a plain Hash#to_h collapses them — two of the three lists vanish
+      # and wrapper-side `object[:trainings]` returns nil (the NoMethodError
+      # `undefined method 'pluck' for nil` seen in admin-back).
+      result = transform(definition, "remoteAssociate", remote_response)
+
+      expect(result.keys).to eq(["tags"])
+      # Only one bucket survives — proof of the collapse.
+      expect(result["tags"]).to eq([{ "value" => "Internal" }]).or eq([{ "value" => "Sourcing" }]).
+                                                                     or eq([{ "value" => "Recruiter_Academy" }])
+    end
+  end
+
   # Round-trip: client aliases -> node_to_gql forwards -> remote answers under
   # aliases -> transform_response returns canonical names.
   describe "round-trip with node_to_gql alias preservation" do
@@ -186,6 +298,71 @@ RSpec.describe NxtGqlClient::Query do
                              { "__typename" => "SelectQuestionChat", "id" => "2",
                                "value" => "x", "view" => "DROPDOWN" }
                            ])
+    end
+
+    it "forwards proxy_alias-declared aliases and surfaces them as canonical wrapper keys" do
+      # admin-back-shape client query: three separate fields whose proxy_alias
+      # carries the literal remote selection text (tags_field pattern).
+      client_query = "{ associate { trainings { value } primaryFunctions { value } types { value } } }"
+
+      document = GraphQL::Language::Parser.parse(client_query)
+      server_query = GraphQL::Query.new(schema, document: document)
+      node = document.definitions.first.selections.find { |s| s.name == "associate" }
+      result_class = Struct.new(:type).new(schema.types["Associate"])
+
+      params = NxtGqlClient::Model.dynamic_query_params(
+        node: node, result_class: result_class, context: server_query.context
+      )
+
+      # forward: rebuilt body inlines the proxy_alias strings as-is
+      # rubocop:disable Layout/LineLength
+      expect(params[:response_gql]).to include('trainings: tags(filter: { keys: ["training"] }) { value }')
+      expect(params[:response_gql]).to include('primaryFunctions: tags(filter: { keys: ["primaryFunction"] }) { value }')
+      expect(params[:response_gql]).to include('types: tags(filter: { keys: ["type"] }) { value }')
+      # rubocop:enable Layout/LineLength
+
+      # forward: aliases pinned under the owning type (admin-side Associate)
+      expect(params[:preserved_aliases]).to eq(
+        "Associate" => Set["trainings", "primaryFunctions", "types"]
+      )
+
+      # reverse: a remote-shape query (single `tags` field, aliased three ways)
+      # parsed against the same shared schema. This is what
+      # proxy_model.parse_query sees.
+      definition = client.parse(<<~GQL)
+        query {
+          remoteAssociate {
+            trainings:        tags(filter: { keys: ["associate.training"] }) { value }
+            primaryFunctions: tags(filter: { keys: ["associate.primaryFunction"] }) { value }
+            types:            tags(filter: { keys: ["associate.type"] }) { value }
+          }
+        }
+      GQL
+
+      remote_response = {
+        "trainings" => [{ "value" => "Recruiter_Academy" }],
+        "primaryFunctions" => [{ "value" => "Sourcing" }],
+        "types" => [{ "value" => "Internal" }]
+      }
+
+      # In real usage admin-back and the remote service both call the type
+      # `Associate`, so pins flow through unchanged. The shared spec schema
+      # has to disambiguate the two sides (`Associate` vs `RemoteAssociate`),
+      # so we re-key the pins for the remote side here.
+      remote_pins = params[:preserved_aliases].transform_keys { |_| "RemoteAssociate" }
+
+      mapped = transform(
+        definition, "remoteAssociate", remote_response,
+        preserved_aliases: remote_pins
+      )
+
+      # Wrapper-side `object[:trainings].pluck(:value)` works because every
+      # alias survived the round-trip under its own (snake_cased) key.
+      expect(mapped).to eq(
+        "trainings" => [{ "value" => "Recruiter_Academy" }],
+        "primary_functions" => [{ "value" => "Sourcing" }],
+        "types" => [{ "value" => "Internal" }]
+      )
     end
   end
 end

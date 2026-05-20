@@ -3,7 +3,7 @@ module NxtGqlClient
     extend ActiveSupport::Concern
 
     included do
-      attr_reader :proxy_attrs, :proxy_children, :proxy
+      attr_reader :proxy_attrs, :proxy_children, :proxy, :proxy_alias
 
       class_eval do
         # rubocop:disable Metrics/ParameterLists
@@ -19,6 +19,16 @@ module NxtGqlClient
 
       def proxy_name
         @proxy_alias || (method_sym == original_name ? name : method_str)
+      end
+
+      # Response key the remote will return data under when @proxy_alias
+      # injects a `name: realField(...)` selection. nil when proxy_alias has
+      # no `:`-prefix (i.e. it isn't aliasing anything).
+      def proxy_alias_key
+        return unless @proxy_alias
+
+        match = @proxy_alias.to_s.match(/\A\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/)
+        match && match[1]
       end
     end
   end
