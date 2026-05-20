@@ -166,18 +166,28 @@ module SpecSchemas
     end
     # rubocop:enable Layout/LineLength
 
-    # type Associate { id: ID! tags(filter: TagsFilter!): [Tag!]! }
+    # type Associate {
+    #   id: ID!
+    #   tags(filter: TagsFilter!): [Tag!]!
+    #   tenancySkills(tenancyIds: [String!]): [Tag!]!
+    # }
     # Remote-facing (scheduling-tool) shape: a single `tags(filter: ...)` field
     # that the rebuilt admin-back query calls three times under different
-    # aliases. transform_response runs against this schema. Its graphql_name
-    # matches `AssociateSchedulingTool.proxy_model.typename` — that's the
-    # pin-lookup key transform_response uses.
+    # aliases. `tenancySkills` exists to exercise the frontend-driven alias
+    # case where the client itself asks the same field twice under different
+    # aliases (`a: tenancySkills(t1) b: tenancySkills(t2)`).
+    # transform_response runs against this schema. Its graphql_name matches
+    # `AssociateSchedulingTool.proxy_model.typename` — that's the pin-lookup
+    # key transform_response uses.
     remote_associate = Class.new(GraphQL::Schema::Object) do
       graphql_name "Associate"
       field_class pfc
       field :id, GraphQL::Types::ID, null: false
       field :tags, [tag], null: false do
         argument :filter, tags_filter, required: true
+      end
+      field :tenancy_skills, [tag], null: false do
+        argument :tenancy_ids, [GraphQL::Types::String], required: false
       end
     end
 

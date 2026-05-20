@@ -121,28 +121,36 @@ RSpec.describe NxtGqlClient::Model do
   end
 
   describe ".dynamic_query_params preserved_aliases" do
-    # Pins are stored as Hash{owner_typename => Set[alias_key]} so a pin on
-    # one type can't bleed into a sibling subtree that uses the same name as
-    # a normal client alias.
-    it "collects the alias key for a single proxy_alias-decorated field" do
+    # Pins are stored as Hash{owner_typename => {alias_key => client_field_name}}
+    # so a pin on one type can't bleed into a sibling subtree, and so the
+    # response transformer can rewrite the alias to its client-side name
+    # rather than just leaving it untouched.
+    it "maps the alias key to the client-side field name for a proxy_alias-decorated field" do
       params = rebuild_params(
         "{ associate { trainings { value } } }",
         field_name: "associate",
         schema_type: schema.types["AssociateSchedulingTool"]
       )
 
-      expect(params[:preserved_aliases]).to eq("Associate" => Set["trainings"])
+      expect(params[:preserved_aliases]).to eq("Associate" => { "trainings" => "trainings" })
     end
 
-    it "collects every alias when multiple proxy_alias siblings share one remote field" do
+    it "maps every alias to its client-side field name when proxy_alias siblings share one remote field" do
       params = rebuild_params(
         "{ associate { trainings { value } primaryFunctions { value } types { value } } }",
         field_name: "associate",
         schema_type: schema.types["AssociateSchedulingTool"]
       )
 
+      # Pin values are the raw `field.name` (graphql-ruby's camelCased form).
+      # transform_response runs `.underscore` on the result key, so values stay
+      # camelCased here and arrive at the wrapper as `:primary_functions`.
       expect(params[:preserved_aliases]).to eq(
-        "Associate" => Set["trainings", "primaryFunctions", "types"]
+        "Associate" => {
+          "trainings" => "trainings",
+          "primaryFunctions" => "primaryFunctions",
+          "types" => "types"
+        }
       )
     end
 
@@ -151,7 +159,7 @@ RSpec.describe NxtGqlClient::Model do
       # snake_case (admin-back's tags_field generates it that way), but
       # node_to_gql emits the proxy_alias via `field_name.camelize(:lower)`,
       # so the remote sees `primaryFunctions:` and answers under that key.
-      # The pin has to match the *emitted* alias, not the raw source string.
+      # The pin key has to match the *emitted* alias.
       params = rebuild_params(
         "{ associate { primaryFunctions { value } } }",
         field_name: "associate",
@@ -160,7 +168,7 @@ RSpec.describe NxtGqlClient::Model do
 
       expect(params[:response_gql]).to include("primaryFunctions: tags")
       expect(params[:response_gql]).not_to include("primary_functions: tags")
-      expect(params[:preserved_aliases]).to eq("Associate" => Set["primaryFunctions"])
+      expect(params[:preserved_aliases]).to eq("Associate" => { "primaryFunctions" => "primaryFunctions" })
     end
 
     it "does not collect anything for selections without proxy_alias" do
@@ -210,7 +218,7 @@ RSpec.describe NxtGqlClient::Model do
       )
 
       expect(params[:preserved_aliases]).to eq(
-        "Associate" => Set["trainings", "types"]
+        "Associate" => { "trainings" => "trainings", "types" => "types" }
       )
     end
 
@@ -231,9 +239,13 @@ RSpec.describe NxtGqlClient::Model do
 
       # Aliases inside the fragment are owned by Associate (the fragment's
       # `on` type) — same owner as the inline `types` selection, so they
-      # all land in one Associate-keyed set.
+      # all land in one Associate-keyed map.
       expect(params[:preserved_aliases]).to eq(
-        "Associate" => Set["trainings", "primaryFunctions", "types"]
+        "Associate" => {
+          "trainings" => "trainings",
+          "primaryFunctions" => "primaryFunctions",
+          "types" => "types"
+        }
       )
     end
   end

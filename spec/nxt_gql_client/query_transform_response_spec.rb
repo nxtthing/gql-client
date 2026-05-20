@@ -162,17 +162,21 @@ RSpec.describe NxtGqlClient::Query do
       }
     end
 
-    it "keeps every alias as its own key when pinned by preserved_aliases" do
+    it "rewrites every alias to its client-side field name when pinned by preserved_aliases" do
       result = transform(
         definition, "remoteAssociate", remote_response,
         preserved_aliases: {
-          "Associate" => Set["trainings", "primaryFunctions", "types"]
+          "Associate" => {
+            "trainings" => "trainings",
+            "primaryFunctions" => "primaryFunctions",
+            "types" => "types"
+          }
         }
       )
 
-      # Wrapper-side `object[:trainings].pluck(:value)` must find data under
-      # the underscored canonical key. snake_case-ing of the alias is
-      # transform_response's job and must apply equally to pinned aliases.
+      # Wrapper-side `object[:primary_functions].pluck(:value)` must find data
+      # under the underscored client-side key. The pin's value is what
+      # transform_response rewrites the response key to before underscoring.
       expect(result).to eq(
         "trainings" => [{ "value" => "Recruiter_Academy" }],
         "primary_functions" => [{ "value" => "Sourcing" }],
@@ -325,9 +329,15 @@ RSpec.describe NxtGqlClient::Query do
       # lookup in transform_response — which sees the remote-schema typename —
       # matches. The admin-back graphql_name (`AssociateSchedulingTool`) is
       # different from the remote one (`Associate`), and pinning under it
-      # would silently lose the pin on the response side.
+      # would silently lose the pin on the response side. Each entry maps the
+      # camelCased alias the remote answers under to the client-side field
+      # name the wrapper reads (`object[:primary_functions]`).
       expect(params[:preserved_aliases]).to eq(
-        "Associate" => Set["trainings", "primaryFunctions", "types"]
+        "Associate" => {
+          "trainings" => "trainings",
+          "primaryFunctions" => "primaryFunctions",
+          "types" => "types"
+        }
       )
 
       # reverse: a remote-shape query (single `tags` field, aliased three ways)
