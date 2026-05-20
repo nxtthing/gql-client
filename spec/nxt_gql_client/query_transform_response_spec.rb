@@ -166,7 +166,7 @@ RSpec.describe NxtGqlClient::Query do
       result = transform(
         definition, "remoteAssociate", remote_response,
         preserved_aliases: {
-          "RemoteAssociate" => Set["trainings", "primaryFunctions", "types"]
+          "Associate" => Set["trainings", "primaryFunctions", "types"]
         }
       )
 
@@ -202,7 +202,7 @@ RSpec.describe NxtGqlClient::Query do
       associate_node = document.definitions.first.selections.find { |s| s.name == "associate" }
       params = NxtGqlClient::Model.dynamic_query_params(
         node: associate_node,
-        result_class: Struct.new(:type).new(schema.types["Associate"]),
+        result_class: Struct.new(:type).new(schema.types["AssociateSchedulingTool"]),
         context: server_query.context
       )
 
@@ -308,7 +308,7 @@ RSpec.describe NxtGqlClient::Query do
       document = GraphQL::Language::Parser.parse(client_query)
       server_query = GraphQL::Query.new(schema, document: document)
       node = document.definitions.first.selections.find { |s| s.name == "associate" }
-      result_class = Struct.new(:type).new(schema.types["Associate"])
+      result_class = Struct.new(:type).new(schema.types["AssociateSchedulingTool"])
 
       params = NxtGqlClient::Model.dynamic_query_params(
         node: node, result_class: result_class, context: server_query.context
@@ -321,7 +321,11 @@ RSpec.describe NxtGqlClient::Query do
       expect(params[:response_gql]).to include('types: tags(filter: { keys: ["type"] }) { value }')
       # rubocop:enable Layout/LineLength
 
-      # forward: aliases pinned under the owning type (admin-side Associate)
+      # forward: aliases pinned under the remote (proxy_model) typename so the
+      # lookup in transform_response — which sees the remote-schema typename —
+      # matches. The admin-back graphql_name (`AssociateSchedulingTool`) is
+      # different from the remote one (`Associate`), and pinning under it
+      # would silently lose the pin on the response side.
       expect(params[:preserved_aliases]).to eq(
         "Associate" => Set["trainings", "primaryFunctions", "types"]
       )
@@ -345,15 +349,9 @@ RSpec.describe NxtGqlClient::Query do
         "types" => [{ "value" => "Internal" }]
       }
 
-      # In real usage admin-back and the remote service both call the type
-      # `Associate`, so pins flow through unchanged. The shared spec schema
-      # has to disambiguate the two sides (`Associate` vs `RemoteAssociate`),
-      # so we re-key the pins for the remote side here.
-      remote_pins = params[:preserved_aliases].transform_keys { |_| "RemoteAssociate" }
-
       mapped = transform(
         definition, "remoteAssociate", remote_response,
-        preserved_aliases: remote_pins
+        preserved_aliases: params[:preserved_aliases]
       )
 
       # Wrapper-side `object[:trainings].pluck(:value)` works because every

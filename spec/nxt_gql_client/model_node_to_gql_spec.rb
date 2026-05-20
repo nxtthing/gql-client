@@ -128,7 +128,7 @@ RSpec.describe NxtGqlClient::Model do
       params = rebuild_params(
         "{ associate { trainings { value } } }",
         field_name: "associate",
-        schema_type: schema.types["Associate"]
+        schema_type: schema.types["AssociateSchedulingTool"]
       )
 
       expect(params[:preserved_aliases]).to eq("Associate" => Set["trainings"])
@@ -138,7 +138,7 @@ RSpec.describe NxtGqlClient::Model do
       params = rebuild_params(
         "{ associate { trainings { value } primaryFunctions { value } types { value } } }",
         field_name: "associate",
-        schema_type: schema.types["Associate"]
+        schema_type: schema.types["AssociateSchedulingTool"]
       )
 
       expect(params[:preserved_aliases]).to eq(
@@ -178,7 +178,7 @@ RSpec.describe NxtGqlClient::Model do
             }
           }
           associate {
-            ... on Associate {
+            ... on AssociateSchedulingTool {
               trainings { value }
               types { value }
             }
@@ -189,7 +189,7 @@ RSpec.describe NxtGqlClient::Model do
       params = rebuild_params(
         query_string,
         field_name: "associate",
-        schema_type: schema.types["Associate"]
+        schema_type: schema.types["AssociateSchedulingTool"]
       )
 
       expect(params[:preserved_aliases]).to eq(
@@ -199,7 +199,7 @@ RSpec.describe NxtGqlClient::Model do
 
     it "collects aliases declared inside a FragmentSpread, owned by the fragment's type" do
       query_string = <<~GQL
-        fragment AssociateTags on Associate {
+        fragment AssociateTags on AssociateSchedulingTool {
           trainings { value }
           primaryFunctions { value }
         }
@@ -209,7 +209,7 @@ RSpec.describe NxtGqlClient::Model do
       params = rebuild_params(
         query_string,
         field_name: "associate",
-        schema_type: schema.types["Associate"]
+        schema_type: schema.types["AssociateSchedulingTool"]
       )
 
       # Aliases inside the fragment are owned by Associate (the fragment's
@@ -222,7 +222,7 @@ RSpec.describe NxtGqlClient::Model do
   end
 
   describe NxtGqlClient::ProxyField, "#proxy_alias_key" do
-    let(:trainings_field) { SpecSchemas.schema.types["Associate"].fields["trainings"] }
+    let(:trainings_field) { SpecSchemas.schema.types["AssociateSchedulingTool"].fields["trainings"] }
     let(:author_field) { SpecSchemas.schema.types["Article"].fields["author"] }
     let(:title_field) { SpecSchemas.schema.types["Article"].fields["title"] }
 

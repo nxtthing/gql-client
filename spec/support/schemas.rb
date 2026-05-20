@@ -134,7 +134,7 @@ module SpecSchemas
       argument :keys, [GraphQL::Types::String], required: true
     end
 
-    # type Associate {
+    # type AssociateSchedulingTool {
     #   id: ID!
     #   trainings:        [Tag!]!   # proxied to remote `tags(filter: {keys: ["training"]})`
     #   primaryFunctions: [Tag!]!   # proxied to remote `tags(filter: {keys: ["primaryFunction"]})`
@@ -142,10 +142,12 @@ module SpecSchemas
     # }
     # Client-facing (admin-back) shape: three separate fields whose proxy_alias
     # carries the literal remote selection text. `node_to_gql` is what exercises
-    # this side.
+    # this side. The admin-back graphql_name (`AssociateSchedulingTool`) is
+    # deliberately different from the proxy_model.typename (`Associate`) — that
+    # mismatch is the prod reality and what preserved_aliases must survive.
     # rubocop:disable Layout/LineLength
     associate = Class.new(GraphQL::Schema::Object) do
-      graphql_name "Associate"
+      graphql_name "AssociateSchedulingTool"
       field_class pfc
       field :id, GraphQL::Types::ID, null: false
       field :trainings, [tag], null: false,
@@ -158,12 +160,14 @@ module SpecSchemas
     end
     # rubocop:enable Layout/LineLength
 
-    # type RemoteAssociate { id: ID! tags(filter: TagsFilter!): [Tag!]! }
+    # type Associate { id: ID! tags(filter: TagsFilter!): [Tag!]! }
     # Remote-facing (scheduling-tool) shape: a single `tags(filter: ...)` field
     # that the rebuilt admin-back query calls three times under different
-    # aliases. transform_response runs against this schema.
+    # aliases. transform_response runs against this schema. Its graphql_name
+    # matches `AssociateSchedulingTool.proxy_model.typename` — that's the
+    # pin-lookup key transform_response uses.
     remote_associate = Class.new(GraphQL::Schema::Object) do
-      graphql_name "RemoteAssociate"
+      graphql_name "Associate"
       field_class pfc
       field :id, GraphQL::Types::ID, null: false
       field :tags, [tag], null: false do
@@ -174,8 +178,8 @@ module SpecSchemas
     # type Query {
     #   questions: [QuestionChat!]!
     #   article: Article!
-    #   associate: Associate!
-    #   remoteAssociate: RemoteAssociate!
+    #   associate: AssociateSchedulingTool!
+    #   remoteAssociate: Associate!
     # }
     query_type = Class.new(GraphQL::Schema::Object) do
       graphql_name "Query"

@@ -52,7 +52,16 @@ module NxtGqlClient
         # The type whose selection we're inside owns any proxy_alias pins
         # collected here. Scoping pins by owner stops `trainings` (an alias on
         # one type) from freezing a same-named client alias on a sibling type.
-        owner_typename = type.respond_to?(:graphql_name) ? type.graphql_name : nil
+        # Pin under the proxy_model typename (remote-schema name): that's what
+        # transform_response sees when it parses the remote response. When
+        # admin-back suffixes types for cross-schema disambiguation (e.g.
+        # `AssociateSchedulingTool` here vs `Associate` on the remote), the
+        # local graphql_name would never match the lookup key.
+        owner_typename = if type.respond_to?(:proxy_model) && type.proxy_model.respond_to?(:typename)
+                           type.proxy_model.typename
+                         elsif type.respond_to?(:graphql_name)
+                           type.graphql_name
+                         end
 
         # rubocop:disable Metrics/BlockLength
         fields = node.children.map do |child|
