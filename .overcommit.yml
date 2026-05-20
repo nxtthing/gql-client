@@ -1,0 +1,12 @@
+PreCommit:
+  RuboCop:
+    enabled: true
+    command: ["rubocop"]
+    on_warn: fail
+    problem_on_unmodified_line: ignore
+
+  RSpec:
+    enabled: true
+    description: "Run rspec"
+    required_executable: "rspec"
+    command: ["rspec"]
