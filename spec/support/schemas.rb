@@ -20,6 +20,16 @@ module SpecSchemas
     @schema ||= build_schema
   end
 
+  # Separate ruby-defined schema that mirrors the *remote* (scheduling-tool)
+  # GraphQL service. The wrapper model in proxy_e2e_spec loads this one via
+  # GraphQL::Client. Splitting from the admin-back schema lets the wrapper
+  # use the nested-action shape (`associate { search }`) the production
+  # wrappers expect, without clashing with the bare `associate` field on
+  # the admin-back side.
+  def remote_schema
+    @remote_schema ||= build_remote_schema
+  end
+
   def proxy_field_class
     @proxy_field_class ||= Class.new(GraphQL::Schema::Field) do
       include NxtGqlClient::ProxyField
@@ -128,6 +138,22 @@ module SpecSchemas
       field :value, GraphQL::Types::String, null: false
     end
 
+    # admin-back's tags_field uses an enum return type — that's why the
+    # frontend writes the field bare (`trainings` without `{ value }`),
+    # which in turn keeps node_to_gql from rebuilding nested children on
+    # top of the proxy_alias string. Mirror that here so e2e behaviour
+    # matches prod.
+    tag_value = Class.new(GraphQL::Schema::Enum) do
+      graphql_name "TagValue"
+      value "Recruiter_Academy"
+      value "Customer_Service"
+      value "Phone_Interview_101"
+      value "Phone_Interviewer"
+      value "Sourcing"
+      value "NXT_Seasonal"
+      value "Internal"
+    end
+
     # input TagsFilter { keys: [String!]! }
     tags_filter = Class.new(GraphQL::Schema::InputObject) do
       graphql_name "TagsFilter"
@@ -156,12 +182,35 @@ module SpecSchemas
       graphql_name "AssociateSchedulingTool"
       field_class pfc
       field :id, GraphQL::Types::ID, null: false
-      field :trainings, [tag], null: false,
-                               proxy_alias: 'trainings: tags(filter: { keys: ["training"] }) { value }'
-      field :primary_functions, [tag], null: false,
-                                       proxy_alias: 'primary_functions: tags(filter: { keys: ["primaryFunction"] }) { value }'
-      field :types, [tag], null: false,
-                           proxy_alias: 'types: tags(filter: { keys: ["type"] }) { value }'
+      field :trainings, [tag_value], null: false,
+                                     proxy_alias: 'trainings: tags(filter: { keys: ["training"] }) { value }'
+      field :primary_functions, [tag_value], null: false,
+                                             proxy_alias: 'primary_functions: tags(filter: { keys: ["primaryFunction"] }) { value }'
+      field :types, [tag_value], null: false,
+                                 proxy_alias: 'types: tags(filter: { keys: ["type"] }) { value }'
+      %i[trainings primary_functions types].each do |name|
+        # admin-back resolver: data lands in `object.object[:trainings]` as
+        # `[{value: "X"}, ...]` (the tagged remote response); flatten it
+        # to the enum's bare values for the consumer.
+        define_method(name) { object.object[name].map { |row| row[:value] } }
+      end
+      # Ordinary non-proxy field. The frontend is free to alias it with
+      # different arguments (`a: tenancySkills(t1) b: tenancySkills(t2)`);
+      # those aliases reach the remote verbatim and come back under the
+      # same alias keys. To resolve each call against the correct response
+      # bucket we look at the ast_node alias.
+      field :tenancy_skills, [tag], null: false, extras: [:ast_node] do
+        argument :tenancy_ids, [GraphQL::Types::String], required: false
+      end
+      def tenancy_skills(ast_node:, tenancy_ids: nil) # rubocop:disable Lint/UnusedMethodArgument
+        # transform_response collapses single-use frontend aliases back to
+        # the canonical schema name and only preserves them as distinct keys
+        # when there's a real collision (alias count >= 2). Read the alias
+        # first, fall back to canonical.
+        alias_key      = ast_node.alias&.underscore&.to_sym
+        canonical_key  = ast_node.name.underscore.to_sym
+        object.object[alias_key] || object.object[canonical_key]
+      end
       define_singleton_method(:proxy_model) { ProxyModelStub.new("Associate") }
     end
     # rubocop:enable Layout/LineLength
@@ -212,5 +261,45 @@ module SpecSchemas
     end
   end
   # rubocop:enable Metrics/MethodLength
+
+  # Standalone "remote service" schema mirroring scheduling-tool.
+  # Used by proxy_e2e_spec via GraphQL::Client. Kept tiny — only what
+  # the wrapper queries need.
+  def build_remote_schema
+    tag = Class.new(GraphQL::Schema::Object) do
+      graphql_name "Tag"
+      field :value, GraphQL::Types::String, null: false
+    end
+
+    tags_filter = Class.new(GraphQL::Schema::InputObject) do
+      graphql_name "TagsFilter"
+      argument :keys, [GraphQL::Types::String], required: true
+    end
+
+    remote_associate = Class.new(GraphQL::Schema::Object) do
+      graphql_name "Associate"
+      field :id, GraphQL::Types::ID, null: false
+      field :tags, [tag], null: false do
+        argument :filter, tags_filter, required: true
+      end
+      field :tenancy_skills, [tag], null: false do
+        argument :tenancy_ids, [GraphQL::Types::String], required: false
+      end
+    end
+
+    actions = Class.new(GraphQL::Schema::Object) do
+      graphql_name "AssociateActions"
+      field :search, remote_associate, null: false
+    end
+
+    query_type = Class.new(GraphQL::Schema::Object) do
+      graphql_name "Query"
+      field :associate, actions, null: false
+    end
+
+    Class.new(GraphQL::Schema) do
+      query query_type
+    end
+  end
 end
 # rubocop:enable Metrics/ModuleLength

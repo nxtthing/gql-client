@@ -235,18 +235,58 @@ RSpec.describe NxtGqlClient::Query do
       expect(mapped.first).not_to have_key("trainings")
     end
 
-    it "regression: without preserved_aliases the three aliases collapse onto one canonical key" do
-      # This is the bug the change fixes. All three response keys
-      # `trainings|primaryFunctions|types` map to the canonical field `tags`,
-      # so a plain Hash#to_h collapses them — two of the three lists vanish
-      # and wrapper-side `object[:trainings]` returns nil (the NoMethodError
-      # `undefined method 'pluck' for nil` seen in admin-back).
+    it "still survives without preserved_aliases — collision detection alone keeps the aliases" do
+      # Even without proxy_alias pins, transform_response sees three
+      # `tags(...)` selections in one selection set, so canonical_field_name
+      # leaves each alias alone instead of collapsing them onto the schema
+      # field name. preserved_aliases is still required to rewrite the
+      # response keys to client-side names — without it the keys stay as
+      # the raw aliases — but data no longer vanishes.
       result = transform(definition, "remoteAssociate", remote_response)
 
-      expect(result.keys).to eq(["tags"])
-      # Only one bucket survives — proof of the collapse.
-      expect(result["tags"]).to eq([{ "value" => "Internal" }]).or eq([{ "value" => "Sourcing" }]).
-                                                                     or eq([{ "value" => "Recruiter_Academy" }])
+      expect(result).to eq(
+        "trainings" => [{ "value" => "Recruiter_Academy" }],
+        "primary_functions" => [{ "value" => "Sourcing" }],
+        "types" => [{ "value" => "Internal" }]
+      )
+    end
+  end
+
+  describe "#transform_response with frontend-driven aliases (no proxy_alias)" do
+    # The frontend itself aliases the same non-proxy field twice:
+    #   tenancySkillsA: tenancySkills(tenancyIds: ["A"]) { value }
+    #   tenancySkillsB: tenancySkills(tenancyIds: ["B"]) { value }
+    # node_to_gql passes the aliases through verbatim, the remote answers
+    # under those alias keys, and `tags_field`-style consumers read
+    # `object[:tenancy_skills_a]` / `object[:tenancy_skills_b]`. Nothing in
+    # preserved_aliases pins these — they aren't proxy_alias — so the
+    # canonical_field_name pass collapses both onto `tenancySkills` and the
+    # consumer hits nil.
+    let(:definition) do
+      client.parse(<<~GQL)
+        query {
+          remoteAssociate {
+            tenancySkillsA: tenancySkills(tenancyIds: ["A"]) { value }
+            tenancySkillsB: tenancySkills(tenancyIds: ["B"]) { value }
+          }
+        }
+      GQL
+    end
+
+    let(:remote_response) do
+      {
+        "tenancySkillsA" => [{ "value" => "alpha" }],
+        "tenancySkillsB" => [{ "value" => "beta" }]
+      }
+    end
+
+    it "keeps each frontend alias as its own (snake_cased) key" do
+      result = transform(definition, "remoteAssociate", remote_response)
+
+      expect(result).to eq(
+        "tenancy_skills_a" => [{ "value" => "alpha" }],
+        "tenancy_skills_b" => [{ "value" => "beta" }]
+      )
     end
   end
 
