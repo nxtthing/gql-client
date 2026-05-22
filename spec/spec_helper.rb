@@ -2,11 +2,17 @@ require "active_support/all"
 require "graphql"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+# RSpec already puts the spec dir on $LOAD_PATH; make it explicit so the
+# `support/...` requires below (and in the type files) resolve regardless
+# of how the suite is invoked.
+$LOAD_PATH.unshift __dir__ unless $LOAD_PATH.include?(__dir__)
 
 require "nxt_gql_client/model"
 require "nxt_gql_client/proxy_field"
 
-Dir[File.expand_path("support/**/*.rb", __dir__)].each { |f| require f }
+# Spec support files require each other via "support/..." paths; loading
+# the schema facade pulls in the whole type graph in dependency order.
+require "support/schemas"
 
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|
