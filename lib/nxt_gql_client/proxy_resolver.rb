@@ -1,4 +1,5 @@
 require "nxt_gql_client/invalid_response"
+require "nxt_gql_client/proxy_argument"
 
 module NxtGqlClient
   module ProxyResolver
