@@ -1,11 +1,9 @@
-require "graphql"
-require "support/proxy_field_class"
+require "support/admin/types/base/object"
 
 module SpecSchemas
   module Admin
     module Types
-      class Author < GraphQL::Schema::Object
-        field_class SpecSchemas.proxy_field_class
+      class Author < Base::Object
         field :id, GraphQL::Types::ID, null: false
         field :full_name, GraphQL::Types::String, null: false
       end

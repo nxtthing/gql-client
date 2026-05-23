@@ -17,7 +17,8 @@ RSpec.describe NxtGqlClient::Model do
     context = query.context
 
     operation = document.definitions.find { |d| d.is_a?(GraphQL::Language::Nodes::OperationDefinition) }
-    node = operation.selections.find { |s| s.name == field_name }
+    node = find_field_node(operation, field_name)
+    raise "no `#{field_name}` field in query" unless node
 
     result_class = Struct.new(:type).new(schema_type)
 
@@ -26,6 +27,20 @@ RSpec.describe NxtGqlClient::Model do
       result_class: result_class,
       context: context
     )
+  end
+
+  # The schema is prod-shaped, so a field like `associate` sits below
+  # `schedulingTool`; find the selection by name at any depth.
+  def find_field_node(node, field_name)
+    return unless node.respond_to?(:selections)
+
+    node.selections.each do |child|
+      return child if child.is_a?(GraphQL::Language::Nodes::Field) && child.name == field_name
+
+      found = find_field_node(child, field_name)
+      return found if found
+    end
+    nil
   end
 
   describe ".node_to_gql alias handling" do
@@ -127,8 +142,8 @@ RSpec.describe NxtGqlClient::Model do
     # rather than just leaving it untouched.
     it "maps the alias key to the client-side field name for a proxy_alias-decorated field" do
       params = rebuild_params(
-        "{ associate { trainings { value } } }",
-        field_name: "associate",
+        "{ schedulingTool { associate { search { trainings { value } } } } }",
+        field_name: "search",
         schema_type: schema.types["AssociateSchedulingTool"]
       )
 
@@ -137,8 +152,16 @@ RSpec.describe NxtGqlClient::Model do
 
     it "maps every alias to its client-side field name when proxy_alias siblings share one remote field" do
       params = rebuild_params(
-        "{ associate { trainings { value } primaryFunctions { value } types { value } } }",
-        field_name: "associate",
+        <<~GQL,
+          {
+            schedulingTool {
+              associate {
+                search { trainings { value } primaryFunctions { value } types { value } }
+              }
+            }
+          }
+        GQL
+        field_name: "search",
         schema_type: schema.types["AssociateSchedulingTool"]
       )
 
@@ -161,8 +184,8 @@ RSpec.describe NxtGqlClient::Model do
       # so the remote sees `primaryFunctions:` and answers under that key.
       # The pin key has to match the *emitted* alias.
       params = rebuild_params(
-        "{ associate { primaryFunctions { value } } }",
-        field_name: "associate",
+        "{ schedulingTool { associate { search { primaryFunctions { value } } } } }",
+        field_name: "search",
         schema_type: schema.types["AssociateSchedulingTool"]
       )
 
@@ -202,10 +225,14 @@ RSpec.describe NxtGqlClient::Model do
               checkboxValue: value
             }
           }
-          associate {
-            ... on AssociateSchedulingTool {
-              trainings { value }
-              types { value }
+          schedulingTool {
+            associate {
+              search {
+                ... on AssociateSchedulingTool {
+                  trainings { value }
+                  types { value }
+                }
+              }
             }
           }
         }
@@ -213,7 +240,7 @@ RSpec.describe NxtGqlClient::Model do
 
       params = rebuild_params(
         query_string,
-        field_name: "associate",
+        field_name: "search",
         schema_type: schema.types["AssociateSchedulingTool"]
       )
 
@@ -228,12 +255,18 @@ RSpec.describe NxtGqlClient::Model do
           trainings { value }
           primaryFunctions { value }
         }
-        { associate { ...AssociateTags types { value } } }
+        {
+          schedulingTool {
+            associate {
+              search { ...AssociateTags types { value } }
+            }
+          }
+        }
       GQL
 
       params = rebuild_params(
         query_string,
-        field_name: "associate",
+        field_name: "search",
         schema_type: schema.types["AssociateSchedulingTool"]
       )
 

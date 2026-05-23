@@ -1,16 +1,13 @@
-require "graphql"
-require "support/proxy_field_class"
-require "support/proxy_model_stub"
+require "support/admin/types/base/object"
 require "support/types/tag"
 require "support/admin/types/tag_value"
+require "support/admin/api_wrappers/scheduling_tool/associate"
 
 module SpecSchemas
   module Admin
     module Types
       # rubocop:disable Layout/LineLength
-      class AssociateSchedulingTool < GraphQL::Schema::Object
-        field_class SpecSchemas.proxy_field_class
-
+      class AssociateSchedulingTool < Base::Object
         description <<~DESC
           Client-facing (admin-back) shape — what node_to_gql rebuilds from.
           Its graphql_name is deliberately different from proxy_model.typename
@@ -52,7 +49,9 @@ module SpecSchemas
           object.object[alias_key] || object.object[canonical_key]
         end
 
-        def self.proxy_model = ProxyModelStub.new("Associate")
+        # The wrapper doubles as the proxy_model: node_to_gql reads
+        # `.typename` off it, ProxyResolver calls `.search` on it.
+        def self.proxy_model = SpecSchemas::Admin::ApiWrappers::SchedulingTool::Associate
       end
       # rubocop:enable Layout/LineLength
     end

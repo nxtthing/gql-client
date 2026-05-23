@@ -1,12 +1,10 @@
-require "graphql"
-require "support/proxy_field_class"
+require "support/admin/types/base/object"
 require "support/admin/types/author"
 
 module SpecSchemas
   module Admin
     module Types
-      class Article < GraphQL::Schema::Object
-        field_class SpecSchemas.proxy_field_class
+      class Article < Base::Object
         field :id, GraphQL::Types::ID, null: false
         field :title, GraphQL::Types::String, null: false
         # proxy_alias with no `:` — renames the field to the remote name
