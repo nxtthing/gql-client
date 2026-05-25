@@ -1,6 +1,6 @@
 require "graphql"
-require "support/types/tag"
-require "support/types/tags_filter"
+require "support/scheduling/types/tag"
+require "support/scheduling/types/tags_filter"
 require "support/scheduling/types/associate_tenancy_skills"
 
 module SpecSchemas
@@ -17,8 +17,8 @@ module SpecSchemas
 
         field :id, GraphQL::Types::ID, null: false
 
-        field :tags, [SpecSchemas::Types::Tag], null: false do
-          argument :filter, SpecSchemas::Types::TagsFilter, required: true
+        field :tags, [Tag], null: false do
+          argument :filter, TagsFilter, required: true
         end
 
         field :tenancy_skills, [AssociateTenancySkills], null: false do
