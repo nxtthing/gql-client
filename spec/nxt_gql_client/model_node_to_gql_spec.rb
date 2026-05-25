@@ -92,12 +92,14 @@ RSpec.describe NxtGqlClient::Model do
     it "rebuilds a polymorphic interface preserving every per-type alias" do
       query_string = <<~GQL
         {
-          questions {
-            id
-            ... on CheckboxQuestionChat { checkboxValue: value }
-            ... on SelectQuestionChat { selectValue: value selectView: view }
-            ... on MultiSelectQuestionChat { multiSelectValue: value }
-            ... on DateQuestionChat { dateValue: value dateView: view }
+          chat {
+            questions {
+              id
+              ... on CheckboxQuestionChat { checkboxValue: value }
+              ... on SelectQuestionChat { selectValue: value selectView: view }
+              ... on MultiSelectQuestionChat { multiSelectValue: value }
+              ... on DateQuestionChat { dateValue: value dateView: view }
+            }
           }
         }
       GQL

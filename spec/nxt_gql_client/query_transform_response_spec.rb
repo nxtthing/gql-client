@@ -303,8 +303,8 @@ RSpec.describe NxtGqlClient::Query do
       client.parse(<<~GQL)
         query {
           remoteAssociate {
-            tenancySkillsA: tenancySkills(tenancyIds: ["A"]) { value }
-            tenancySkillsB: tenancySkills(tenancyIds: ["B"]) { value }
+            tenancySkillsA: tenancySkills(tenancyIds: ["A"]) { tenancyId taskNames }
+            tenancySkillsB: tenancySkills(tenancyIds: ["B"]) { tenancyId taskNames }
           }
         }
       GQL
@@ -312,8 +312,8 @@ RSpec.describe NxtGqlClient::Query do
 
     let(:remote_response) do
       {
-        "tenancySkillsA" => [{ "value" => "alpha" }],
-        "tenancySkillsB" => [{ "value" => "beta" }]
+        "tenancySkillsA" => [{ "tenancyId" => "A", "taskNames" => ["alpha"] }],
+        "tenancySkillsB" => [{ "tenancyId" => "B", "taskNames" => ["beta"] }]
       }
     end
 
@@ -321,8 +321,8 @@ RSpec.describe NxtGqlClient::Query do
       result = transform(definition, "remoteAssociate", remote_response)
 
       expect(result).to eq(
-        "tenancy_skills_a" => [{ "value" => "alpha" }],
-        "tenancy_skills_b" => [{ "value" => "beta" }]
+        "tenancy_skills_a" => [{ "tenancy_id" => "A", "task_names" => ["alpha"] }],
+        "tenancy_skills_b" => [{ "tenancy_id" => "B", "task_names" => ["beta"] }]
       )
     end
   end

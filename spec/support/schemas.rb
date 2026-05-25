@@ -1,25 +1,42 @@
 require "support/admin/schema"
-require "support/scheduling_tool/schema"
+require "support/client_pages/schema"
+require "support/scheduling/schema"
 
-# Spec-only GraphQL schemas, laid out one type per file under
-# spec/support/{admin,scheduling_tool}/ — mirroring how the host app
+# Spec-only GraphQL schemas, one per real backend the gem touches.
+# Each lives under spec/support/<service>/ mirroring how the real repo
 # organises app/graphql.
 #
-# - SpecSchemas.schema        — the admin-back schema, prod-shaped (the
-#   scheduling-tool tree hangs off a `schedulingTool` resolver). The
-#   end-to-end spec executes against it; the node_to_gql /
-#   transform_response unit specs reach into it for types and parse
-#   selections against it.
-# - SpecSchemas.remote_schema — standalone, fully executable scheduling-tool
-#   schema (resolvers + DataStore), what the api wrapper talks to.
+# Direction of traffic:
+#   client-pages-back ──gql──▶ admin-back ──gql──▶ scheduling-back
+#
+# - SpecSchemas.client_pages_schema — consumer of admin-back chat surface
+#   (mirrors nxt-client-pages-back).
+# - SpecSchemas.admin_schema        — serves chat to client-pages, calls
+#   scheduling-back for scheduling-tool data. Mirrors nxt-admin-back's
+#   ClientPages::Schema plus its main admin Query.
+# - SpecSchemas.scheduling_schema   — source of scheduling-tool data
+#   (mirrors nxt-scheduling-back's Schemas::Admin).
+#
+# Unit specs (model_node_to_gql, query_transform_response) reach into
+# `admin_schema.types[...]` and parse selections against it; e2e specs
+# execute real queries through the runtime and ProxyResolver chain.
 module SpecSchemas
   module_function
 
-  def schema
+  def admin_schema
     Admin::Schema
   end
 
-  def remote_schema
-    SchedulingTool::Schema
+  def client_pages_schema
+    ClientPages::Schema
   end
+
+  def scheduling_schema
+    Scheduling::Schema
+  end
+
+  # Back-compat aliases for unit specs that pre-date the rename. Will be
+  # removed once those specs migrate to admin_schema.
+  def schema = admin_schema
+  def remote_schema = scheduling_schema
 end

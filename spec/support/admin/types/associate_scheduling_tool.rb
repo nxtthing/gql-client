@@ -1,6 +1,6 @@
 require "support/admin/types/base/object"
-require "support/types/tag"
 require "support/admin/types/tag_value"
+require "support/scheduling/types/associate_tenancy_skills"
 require "support/admin/api_wrappers/scheduling_tool/associate"
 
 module SpecSchemas
@@ -34,8 +34,9 @@ module SpecSchemas
           define_method(name) { object.object[name].map { |row| row[:value] } }
         end
 
-        field :tenancy_skills, [SpecSchemas::Types::Tag], null: false, extras: [:ast_node],
-                                                          description: "Non-proxy field the frontend may alias with different args; each alias resolves against its own response bucket." do
+        field :tenancy_skills, [SpecSchemas::Scheduling::Types::AssociateTenancySkills], null: false,
+                                                                                         extras: [:ast_node],
+                                                                                         description: "Non-proxy field the frontend may alias with different args; each alias resolves against its own response bucket." do
           argument :tenancy_ids, [GraphQL::Types::String], required: false
         end
 

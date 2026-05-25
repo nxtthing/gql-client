@@ -1,13 +1,13 @@
 require "graphql/client"
 require "nxt_gql_client/api"
 require "support/local_schema_execute"
-require "support/scheduling_tool/schema"
+require "support/scheduling/schema"
 
 module SpecSchemas
   module Admin
     # admin-back-side API wrappers — the spec counterpart of admin-back's
     # lib/api_wrappers. The scheduling-tool service itself (schema, types,
-    # data) lives under SpecSchemas::SchedulingTool.
+    # data) lives under SpecSchemas::Scheduling.
     module ApiWrappers
       module SchedulingTool
         # A NxtGqlClient::Api wired to the in-process scheduling-tool schema
@@ -22,7 +22,7 @@ module SpecSchemas
             @instance ||= begin
               api = NxtGqlClient::Api.allocate
               api.instance_variable_set(:@url, "local://scheduling-tool")
-              schema = SpecSchemas::SchedulingTool::Schema
+              schema = SpecSchemas::Scheduling::Schema
               client = GraphQL::Client.new(
                 schema: schema,
                 execute: LocalSchemaExecute.new(schema)
