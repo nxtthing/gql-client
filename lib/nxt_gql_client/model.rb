@@ -110,14 +110,15 @@ module NxtGqlClient
 
           # When a ProxyField was declared with an explicit proxy_alias, the
           # alias inside that string becomes the response key on the proxied
-          # call (e.g. `trainings: tags(filter: ...)`). Pin it under the
-          # owning type so the response transformer keeps it as-is instead
-          # of collapsing siblings that share the underlying field name.
-          # Camelize because the alias is emitted via `field_name.camelize(:lower)`
-          # below, so a snake_case alias like `primary_functions:` reaches the
-          # remote as `primaryFunctions:` and the response key matches that.
+          # call (e.g. `trainings: tags(filter: ...)`). Map the alias to the
+          # client-side field name so transform_response can rewrite the
+          # response key directly to what the wrapper expects, instead of
+          # collapsing siblings that share the underlying field name.
+          # Key is camelized because the alias is emitted via
+          # `field_name.camelize(:lower)` below — the remote sees and answers
+          # under the camelCased form.
           if preserved_aliases && owner_typename && is_proxy_field && (alias_key = field.proxy_alias_key)
-            (preserved_aliases[owner_typename] ||= Set.new) << alias_key.camelize(:lower)
+            (preserved_aliases[owner_typename] ||= {})[alias_key.camelize(:lower)] = field.name
           end
 
           # rubocop:disable Layout/LineLength

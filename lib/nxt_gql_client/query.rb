@@ -131,20 +131,17 @@ module NxtGqlClient
           return if data.nil?
 
           owner_typename = klass.klass.type.graphql_name if klass.klass.type.respond_to?(:graphql_name)
-          pinned = owner_typename && @preserved_aliases ? @preserved_aliases[owner_typename] : nil
+          alias_to_field = owner_typename && @preserved_aliases ? @preserved_aliases[owner_typename] : nil
 
           data.to_h do |k, v|
-            # `k` is the response key (alias); map it back to the canonical
-            # schema field name unless the owning type pinned this alias as
-            # the canonical response key (proxy_alias case). Pins are scoped
-            # by owner type so a `trainings` alias on one type can't freeze a
-            # same-named client alias on a sibling type. Field-type lookup
-            # still goes by `k`.
-            result_key = if pinned&.include?(k)
-                           k
-                         else
-                           canonical_field_name(klass, k) || k
-                         end
+            # `k` is the response key (alias). If the owning type mapped this
+            # alias to a client-side field name (proxy_alias case), rewrite
+            # to that — sibling aliases that share an underlying remote field
+            # would otherwise collapse onto one canonical key. Pins are
+            # scoped by owner so a `trainings` alias on one type can't bleed
+            # into a same-named client alias on a sibling type. Field-type
+            # lookup still goes by `k`.
+            result_key = alias_to_field&.dig(k) || canonical_field_name(klass, k) || k
             [result_key.underscore, transform_response(v, klass.defined_fields[k])]
           end
         else
@@ -173,13 +170,39 @@ module NxtGqlClient
                        GraphQL::Query::NullContext
                      end
 
+      # Walk every selection set. Within one selection set, if the same
+      # schema field is selected more than once (necessarily under different
+      # aliases, with different arguments), each alias has to stay as its
+      # own canonical key — collapsing onto the schema name would merge the
+      # response buckets and silently lose data. Single-use aliases still
+      # collapse, which is what callers expect (`renamedTitle: title` -> `title`).
+      # Scoping the collision check to one selection set keeps unrelated
+      # subtrees (e.g. per-type inline fragments under an interface)
+      # independent.
       mapping = {}
       visit = lambda do |node|
-        if node.is_a?(GraphQL::Language::Nodes::Field)
-          response_key = node.alias || node.name
-          if !mapping.key?(response_key) && gql_type.get_field(node.name, null_context)
-            mapping[response_key] = node.name
+        if node.respond_to?(:selections)
+          # First pass: tally how many times each schema field is selected in
+          # this set so the second pass can decide collapse vs. preserve.
+          # The two passes must stay separate — collapsing them changes the
+          # tally semantics (each child would see itself counted only once
+          # at decision time).
+          names_in_set = Hash.new(0)
+          node.selections.each do |child|
+            names_in_set[child.name] += 1 if child.is_a?(GraphQL::Language::Nodes::Field)
           end
+          # rubocop:disable Style/CombinableLoops
+          node.selections.each do |child|
+            next unless child.is_a?(GraphQL::Language::Nodes::Field)
+
+            response_key = child.alias || child.name
+            next if mapping.key?(response_key)
+            next unless gql_type.get_field(child.name, null_context)
+
+            collapse = child.alias.nil? || names_in_set[child.name] < 2
+            mapping[response_key] = collapse ? child.name : response_key
+          end
+          # rubocop:enable Style/CombinableLoops
         end
         node.children.each { |child| visit.call(child) } if node.respond_to?(:children)
       end

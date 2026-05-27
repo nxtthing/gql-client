@@ -12,16 +12,45 @@ RSpec.describe NxtGqlClient::Query do
   # Only needed to reach the private #transform_response.
   let(:query) { described_class.allocate }
 
+  # Walks the parsed definition's schema_class tree looking for a field by
+  # name at any depth — handles prod-shaped queries like
+  # `{ chat { questions { ... } } }` where `questions` isn't at the root.
   def schema_klass_for(definition, field)
-    klass = definition.schema_class
-    klass = klass.of_klass until klass.respond_to?(:defined_fields)
-    klass.defined_fields[field]
+    seen = {}.compare_by_identity
+    visit = lambda do |klass|
+      klass = klass.of_klass until klass.respond_to?(:defined_fields)
+      return if seen[klass]
+
+      seen[klass] = true
+      return klass.defined_fields[field] if klass.defined_fields.key?(field)
+
+      klass.defined_fields.each_value do |child|
+        found = visit.call(child)
+        return found if found
+      end
+      nil
+    end
+    visit.call(definition.schema_class)
   end
 
   def transform(definition, field, data, preserved_aliases: nil)
     q = described_class.allocate
     q.instance_variable_set(:@preserved_aliases, preserved_aliases) if preserved_aliases
     q.send(:transform_response, data, schema_klass_for(definition, field))
+  end
+
+  # The schema is prod-shaped, so `associate` (and its `search`) sit below
+  # `schedulingTool`; find a selection by name at any depth.
+  def find_field_node(node, field_name)
+    return unless node.respond_to?(:selections)
+
+    node.selections.each do |child|
+      return child if child.is_a?(GraphQL::Language::Nodes::Field) && child.name == field_name
+
+      found = find_field_node(child, field_name)
+      return found if found
+    end
+    nil
   end
 
   describe "#transform_response alias handling" do
@@ -64,10 +93,12 @@ RSpec.describe NxtGqlClient::Query do
     it "falls back to the response key for meta fields like __typename" do
       definition = client.parse(<<~GQL)
         query {
-          questions {
-            id
-            __typename
-            ... on CheckboxQuestionChat { checkboxValue: value }
+          chat {
+            questions {
+              id
+              __typename
+              ... on CheckboxQuestionChat { checkboxValue: value }
+            }
           }
         }
       GQL
@@ -90,13 +121,15 @@ RSpec.describe NxtGqlClient::Query do
     it "maps polymorphic per-type aliases back to canonical value/view" do
       definition = client.parse(<<~GQL)
         query {
-          questions {
-            id
-            __typename
-            ... on CheckboxQuestionChat { checkboxValue: value }
-            ... on SelectQuestionChat { selectValue: value selectView: view }
-            ... on MultiSelectQuestionChat { multiSelectValue: value }
-            ... on DateQuestionChat { dateValue: value dateView: view }
+          chat {
+            questions {
+              id
+              __typename
+              ... on CheckboxQuestionChat { checkboxValue: value }
+              ... on SelectQuestionChat { selectValue: value selectView: view }
+              ... on MultiSelectQuestionChat { multiSelectValue: value }
+              ... on DateQuestionChat { dateValue: value dateView: view }
+            }
           }
         }
       GQL
@@ -162,17 +195,21 @@ RSpec.describe NxtGqlClient::Query do
       }
     end
 
-    it "keeps every alias as its own key when pinned by preserved_aliases" do
+    it "rewrites every alias to its client-side field name when pinned by preserved_aliases" do
       result = transform(
         definition, "remoteAssociate", remote_response,
         preserved_aliases: {
-          "Associate" => Set["trainings", "primaryFunctions", "types"]
+          "Associate" => {
+            "trainings" => "trainings",
+            "primaryFunctions" => "primaryFunctions",
+            "types" => "types"
+          }
         }
       )
 
-      # Wrapper-side `object[:trainings].pluck(:value)` must find data under
-      # the underscored canonical key. snake_case-ing of the alias is
-      # transform_response's job and must apply equally to pinned aliases.
+      # Wrapper-side `object[:primary_functions].pluck(:value)` must find data
+      # under the underscored client-side key. The pin's value is what
+      # transform_response rewrites the response key to before underscoring.
       expect(result).to eq(
         "trainings" => [{ "value" => "Recruiter_Academy" }],
         "primary_functions" => [{ "value" => "Sourcing" }],
@@ -188,10 +225,12 @@ RSpec.describe NxtGqlClient::Query do
       # that means `value`. Those two must not collide.
       client_query = <<~GQL
         {
-          associate { trainings { value } }
-          questions {
-            id
-            ... on CheckboxQuestionChat { trainings: value }
+          schedulingTool { associate { search { trainings { value } } } }
+          chat {
+            questions {
+              id
+              ... on CheckboxQuestionChat { trainings: value }
+            }
           }
         }
       GQL
@@ -199,19 +238,21 @@ RSpec.describe NxtGqlClient::Query do
       document = GraphQL::Language::Parser.parse(client_query)
       server_query = GraphQL::Query.new(schema, document: document)
 
-      associate_node = document.definitions.first.selections.find { |s| s.name == "associate" }
+      search_node = find_field_node(document.definitions.first, "search")
       params = NxtGqlClient::Model.dynamic_query_params(
-        node: associate_node,
+        node: search_node,
         result_class: Struct.new(:type).new(schema.types["AssociateSchedulingTool"]),
         context: server_query.context
       )
 
       questions_definition = client.parse(<<~GQL)
         query {
-          questions {
-            id
-            __typename
-            ... on CheckboxQuestionChat { trainings: value }
+          chat {
+            questions {
+              id
+              __typename
+              ... on CheckboxQuestionChat { trainings: value }
+            }
           }
         }
       GQL
@@ -231,18 +272,58 @@ RSpec.describe NxtGqlClient::Query do
       expect(mapped.first).not_to have_key("trainings")
     end
 
-    it "regression: without preserved_aliases the three aliases collapse onto one canonical key" do
-      # This is the bug the change fixes. All three response keys
-      # `trainings|primaryFunctions|types` map to the canonical field `tags`,
-      # so a plain Hash#to_h collapses them — two of the three lists vanish
-      # and wrapper-side `object[:trainings]` returns nil (the NoMethodError
-      # `undefined method 'pluck' for nil` seen in admin-back).
+    it "still survives without preserved_aliases — collision detection alone keeps the aliases" do
+      # Even without proxy_alias pins, transform_response sees three
+      # `tags(...)` selections in one selection set, so canonical_field_name
+      # leaves each alias alone instead of collapsing them onto the schema
+      # field name. preserved_aliases is still required to rewrite the
+      # response keys to client-side names — without it the keys stay as
+      # the raw aliases — but data no longer vanishes.
       result = transform(definition, "remoteAssociate", remote_response)
 
-      expect(result.keys).to eq(["tags"])
-      # Only one bucket survives — proof of the collapse.
-      expect(result["tags"]).to eq([{ "value" => "Internal" }]).or eq([{ "value" => "Sourcing" }]).
-                                                                     or eq([{ "value" => "Recruiter_Academy" }])
+      expect(result).to eq(
+        "trainings" => [{ "value" => "Recruiter_Academy" }],
+        "primary_functions" => [{ "value" => "Sourcing" }],
+        "types" => [{ "value" => "Internal" }]
+      )
+    end
+  end
+
+  describe "#transform_response with frontend-driven aliases (no proxy_alias)" do
+    # The frontend itself aliases the same non-proxy field twice:
+    #   tenancySkillsA: tenancySkills(tenancyIds: ["A"]) { value }
+    #   tenancySkillsB: tenancySkills(tenancyIds: ["B"]) { value }
+    # node_to_gql passes the aliases through verbatim, the remote answers
+    # under those alias keys, and `tags_field`-style consumers read
+    # `object[:tenancy_skills_a]` / `object[:tenancy_skills_b]`. Nothing in
+    # preserved_aliases pins these — they aren't proxy_alias — so the
+    # canonical_field_name pass collapses both onto `tenancySkills` and the
+    # consumer hits nil.
+    let(:definition) do
+      client.parse(<<~GQL)
+        query {
+          remoteAssociate {
+            tenancySkillsA: tenancySkills(tenancyIds: ["A"]) { tenancyId taskNames }
+            tenancySkillsB: tenancySkills(tenancyIds: ["B"]) { tenancyId taskNames }
+          }
+        }
+      GQL
+    end
+
+    let(:remote_response) do
+      {
+        "tenancySkillsA" => [{ "tenancyId" => "A", "taskNames" => ["alpha"] }],
+        "tenancySkillsB" => [{ "tenancyId" => "B", "taskNames" => ["beta"] }]
+      }
+    end
+
+    it "keeps each frontend alias as its own (snake_cased) key" do
+      result = transform(definition, "remoteAssociate", remote_response)
+
+      expect(result).to eq(
+        "tenancy_skills_a" => [{ "tenancy_id" => "A", "task_names" => ["alpha"] }],
+        "tenancy_skills_b" => [{ "tenancy_id" => "B", "task_names" => ["beta"] }]
+      )
     end
   end
 
@@ -252,10 +333,12 @@ RSpec.describe NxtGqlClient::Query do
     it "forwards client aliases and maps the remote response back to canonical names" do
       client_query = <<~GQL
         {
-          questions {
-            id
-            ... on CheckboxQuestionChat { checkboxValue: value }
-            ... on SelectQuestionChat { selectValue: value selectView: view }
+          chat {
+            questions {
+              id
+              ... on CheckboxQuestionChat { checkboxValue: value }
+              ... on SelectQuestionChat { selectValue: value selectView: view }
+            }
           }
         }
       GQL
@@ -263,7 +346,7 @@ RSpec.describe NxtGqlClient::Query do
       # forward: rebuild the proxied query against the shared Ruby schema
       document = GraphQL::Language::Parser.parse(client_query)
       server_query = GraphQL::Query.new(schema, document: document)
-      node = document.definitions.first.selections.find { |s| s.name == "questions" }
+      node = find_field_node(document.definitions.first, "questions")
       result_class = Struct.new(:type).new(schema.types["QuestionChat"])
 
       rebuilt = NxtGqlClient::Model.dynamic_query_params(
@@ -277,11 +360,13 @@ RSpec.describe NxtGqlClient::Query do
       # reverse: remote response keyed by those same aliases
       definition = client.parse(<<~GQL)
         query {
-          questions {
-            id
-            __typename
-            ... on CheckboxQuestionChat { checkboxValue: value }
-            ... on SelectQuestionChat { selectValue: value selectView: view }
+          chat {
+            questions {
+              id
+              __typename
+              ... on CheckboxQuestionChat { checkboxValue: value }
+              ... on SelectQuestionChat { selectValue: value selectView: view }
+            }
           }
         }
       GQL
@@ -303,11 +388,19 @@ RSpec.describe NxtGqlClient::Query do
     it "forwards proxy_alias-declared aliases and surfaces them as canonical wrapper keys" do
       # admin-back-shape client query: three separate fields whose proxy_alias
       # carries the literal remote selection text (tags_field pattern).
-      client_query = "{ associate { trainings { value } primaryFunctions { value } types { value } } }"
+      client_query = <<~GQL
+        {
+          schedulingTool {
+            associate {
+              search { trainings { value } primaryFunctions { value } types { value } }
+            }
+          }
+        }
+      GQL
 
       document = GraphQL::Language::Parser.parse(client_query)
       server_query = GraphQL::Query.new(schema, document: document)
-      node = document.definitions.first.selections.find { |s| s.name == "associate" }
+      node = find_field_node(document.definitions.first, "search")
       result_class = Struct.new(:type).new(schema.types["AssociateSchedulingTool"])
 
       params = NxtGqlClient::Model.dynamic_query_params(
@@ -325,9 +418,15 @@ RSpec.describe NxtGqlClient::Query do
       # lookup in transform_response — which sees the remote-schema typename —
       # matches. The admin-back graphql_name (`AssociateSchedulingTool`) is
       # different from the remote one (`Associate`), and pinning under it
-      # would silently lose the pin on the response side.
+      # would silently lose the pin on the response side. Each entry maps the
+      # camelCased alias the remote answers under to the client-side field
+      # name the wrapper reads (`object[:primary_functions]`).
       expect(params[:preserved_aliases]).to eq(
-        "Associate" => Set["trainings", "primaryFunctions", "types"]
+        "Associate" => {
+          "trainings" => "trainings",
+          "primaryFunctions" => "primaryFunctions",
+          "types" => "types"
+        }
       )
 
       # reverse: a remote-shape query (single `tags` field, aliased three ways)
