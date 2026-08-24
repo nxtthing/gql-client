@@ -224,6 +224,12 @@ module NxtGqlClient
         end
       end
 
+      def attribute(attribute_name, type)
+        define_method attribute_name do |**_args|
+          type.coerce_input(@object[attribute_name], nil)
+        end
+      end
+
       def typename(value = nil)
         if value
           @typename = value
